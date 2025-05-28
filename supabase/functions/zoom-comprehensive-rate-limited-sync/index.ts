@@ -129,7 +129,7 @@ function calculateEndTime(startTime: string, durationMinutes: number): string | 
   return end.toISOString()
 }
 
-// Sync webinar panelists function
+// Sync webinar panelists function with fixed constraint handling
 async function syncWebinarPanelists(webinarId: string, webinar_id: string, organization_id: string, accessToken: string, supabaseClient: any, progress: SyncProgress) {
   try {
     console.log(`Syncing panelists for webinar: ${webinarId}`)
@@ -157,15 +157,21 @@ async function syncWebinarPanelists(webinarId: string, webinar_id: string, organ
     if (panelistsResponse.ok) {
       const data = await panelistsResponse.json()
       panelists = data.panelists || []
+      console.log(`  - Found ${panelists.length} invited panelists`)
+    } else {
+      console.log(`  - No panelist list found (${panelistsResponse.status})`)
     }
 
     if (participationResponse.ok) {
       const data = await participationResponse.json()
       participationData = data.panelists || []
+      console.log(`  - Found ${participationData.length} panelist participation records`)
+    } else {
+      console.log(`  - No panelist participation found (${participationResponse.status})`)
     }
 
     if (panelists.length === 0 && participationData.length === 0) {
-      console.log(`No panelist data found for webinar ${webinarId}`)
+      console.log(`  - No panelist data found for webinar ${webinarId}`)
       return
     }
 
@@ -175,7 +181,7 @@ async function syncWebinarPanelists(webinarId: string, webinar_id: string, organ
       participationMap.set(p.email, p)
     })
 
-    // Process each panelist
+    // Process each invited panelist
     for (const panelist of panelists) {
       try {
         const participation = participationMap.get(panelist.email)
@@ -190,29 +196,37 @@ async function syncWebinarPanelists(webinarId: string, webinar_id: string, organ
           status = 'joined'
         }
 
-        await supabaseClient
+        const panelistRecord = {
+          webinar_id,
+          organization_id,
+          zoom_panelist_id: panelist.id,
+          email: panelist.email,
+          name: panelist.name || participation?.name || null,
+          join_url: panelist.join_url || null,
+          virtual_background_id: panelist.virtual_background_id || null,
+          status,
+          invited_at: new Date().toISOString(),
+          joined_at: participation?.join_time || null,
+          left_at: participation?.leave_time || null,
+          duration_minutes: durationMinutes,
+          updated_at: new Date().toISOString(),
+        }
+
+        const { error } = await supabaseClient
           .from('webinar_panelists')
-          .upsert({
-            webinar_id,
-            organization_id,
-            zoom_panelist_id: panelist.id,
-            email: panelist.email,
-            name: panelist.name || participation?.name,
-            join_url: panelist.join_url,
-            virtual_background_id: panelist.virtual_background_id,
-            status,
-            invited_at: new Date().toISOString(),
-            joined_at: participation?.join_time || null,
-            left_at: participation?.leave_time || null,
-            duration_minutes: durationMinutes,
-            updated_at: new Date().toISOString(),
-          }, {
-            onConflict: 'webinar_id,zoom_panelist_id'
+          .upsert(panelistRecord, {
+            onConflict: 'webinar_id,email'
           })
 
-        progress.panelists_synced++
+        if (error) {
+          console.error(`  - Error upserting panelist ${panelist.email}:`, error)
+        } else {
+          progress.panelists_synced++
+          console.log(`  - Processed panelist: ${panelist.email}`)
+        }
+
       } catch (error) {
-        console.error(`Error processing panelist ${panelist.email}:`, error)
+        console.error(`  - Error processing panelist ${panelist.email}:`, error)
       }
     }
 
@@ -222,31 +236,39 @@ async function syncWebinarPanelists(webinarId: string, webinar_id: string, organ
         try {
           const durationMinutes = participation.duration ? Math.round(participation.duration / 60) : 0
 
-          await supabaseClient
+          const participantRecord = {
+            webinar_id,
+            organization_id,
+            zoom_panelist_id: participation.id || `participant_${participation.email}`,
+            email: participation.email,
+            name: participation.name || null,
+            status: participation.join_time ? 'joined' : 'invited',
+            joined_at: participation.join_time || null,
+            left_at: participation.leave_time || null,
+            duration_minutes: durationMinutes,
+            updated_at: new Date().toISOString(),
+          }
+
+          const { error } = await supabaseClient
             .from('webinar_panelists')
-            .upsert({
-              webinar_id,
-              organization_id,
-              zoom_panelist_id: participation.id,
-              email: participation.email,
-              name: participation.name,
-              status: participation.join_time ? 'joined' : 'invited',
-              joined_at: participation.join_time || null,
-              left_at: participation.leave_time || null,
-              duration_minutes: durationMinutes,
-              updated_at: new Date().toISOString(),
-            }, {
-              onConflict: 'webinar_id,zoom_panelist_id'
+            .upsert(participantRecord, {
+              onConflict: 'webinar_id,email'
             })
 
-          progress.panelists_synced++
+          if (error) {
+            console.error(`  - Error upserting participation record ${participation.email}:`, error)
+          } else {
+            progress.panelists_synced++
+            console.log(`  - Processed participation record: ${participation.email}`)
+          }
+
         } catch (error) {
-          console.error(`Error processing participation record ${participation.email}:`, error)
+          console.error(`  - Error processing participation record ${participation.email}:`, error)
         }
       }
     }
 
-    console.log(`Processed ${panelists.length} panelists and ${participationData.length} participation records`)
+    console.log(`  - Successfully processed ${progress.panelists_synced} panelist records`)
     
   } catch (error) {
     console.error(`Error syncing panelists for webinar ${webinarId}:`, error)
@@ -308,7 +330,10 @@ async function processDetailedSync(
             .eq('zoom_webinar_id', webinar.id)
             .single()
 
-          if (!webinarRecord) continue
+          if (!webinarRecord) {
+            console.log(`  - Webinar record not found for ${webinar.id}`)
+            continue
+          }
 
           // Sync participants
           await rateLimitedDelay(progress.api_requests_made)
@@ -343,7 +368,7 @@ async function processDetailedSync(
 
     // Final update
     progress.current_stage = 'completed'
-    progress.stage_message = 'Background sync completed successfully!'
+    progress.stage_message = `Background sync completed successfully! Processed ${progress.panelists_synced} panelists.`
     
     await supabaseClient
       .from('sync_jobs')
@@ -355,7 +380,11 @@ async function processDetailedSync(
       })
       .eq('id', syncJobId)
 
-    console.log('Background detailed sync completed successfully')
+    console.log(`Background detailed sync completed successfully. Final stats:`)
+    console.log(`  - Participants: ${progress.participants_synced}`)
+    console.log(`  - Panelists: ${progress.panelists_synced}`)
+    console.log(`  - Polls: ${progress.polls_synced}`)
+    console.log(`  - Q&A: ${progress.qa_synced}`)
     
   } catch (error) {
     console.error('Background detailed sync error:', error)
