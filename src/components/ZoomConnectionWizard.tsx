@@ -21,7 +21,7 @@ import {
 } from '@/components/ui/form';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { CheckCircle, Link2, Loader2, ArrowRight, ArrowLeft, ExternalLink, AlertTriangle } from 'lucide-react';
+import { CheckCircle, Link2, Loader2, ArrowRight, ArrowLeft, ExternalLink, AlertTriangle, RefreshCw } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -46,6 +46,7 @@ const ZoomConnectionWizard = ({ isOpen, onClose, onSuccess }: ZoomConnectionWiza
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [testProgress, setTestProgress] = useState(0);
+  const [canRetry, setCanRetry] = useState(false);
   
   const form = useForm<CredentialsForm>({
     resolver: zodResolver(credentialsSchema),
@@ -69,6 +70,7 @@ const ZoomConnectionWizard = ({ isOpen, onClose, onSuccess }: ZoomConnectionWiza
     if (currentStep === 'welcome') {
       setCurrentStep('credentials');
       setError(null);
+      setCanRetry(false);
     }
   };
 
@@ -76,7 +78,14 @@ const ZoomConnectionWizard = ({ isOpen, onClose, onSuccess }: ZoomConnectionWiza
     if (currentStep === 'credentials') {
       setCurrentStep('welcome');
       setError(null);
+      setCanRetry(false);
     }
+  };
+
+  const handleRetry = () => {
+    setError(null);
+    setCanRetry(false);
+    setTestProgress(0);
   };
 
   const handleCredentialsSubmit = async (data: CredentialsForm) => {
@@ -84,6 +93,7 @@ const ZoomConnectionWizard = ({ isOpen, onClose, onSuccess }: ZoomConnectionWiza
     setCurrentStep('testing');
     setError(null);
     setTestProgress(0);
+    setCanRetry(false);
     
     try {
       console.log('Starting credential validation...');
@@ -122,28 +132,13 @@ const ZoomConnectionWizard = ({ isOpen, onClose, onSuccess }: ZoomConnectionWiza
 
       if (!testResponse?.success) {
         console.error('Test response failed:', testResponse);
-        throw new Error(testResponse?.error || 'Failed to validate credentials with Zoom API');
+        const errorMessage = testResponse?.error || 'Failed to validate credentials with Zoom API';
+        throw new Error(errorMessage);
       }
 
       console.log('Credentials validated successfully');
-      setTestProgress(80);
-
-      // Step 3: Update connection status to active
-      const { error: updateError } = await supabase
-        .from('zoom_connections')
-        .update({ 
-          connection_status: 'active',
-          zoom_user_id: testResponse.zoom_user_id || '',
-          zoom_email: testResponse.zoom_email || '',
-        })
-        .eq('user_id', (await supabase.auth.getUser()).data.user?.id);
-
-      if (updateError) {
-        console.error('Update error:', updateError);
-        throw new Error('Failed to update connection status');
-      }
-
       setTestProgress(100);
+
       setCurrentStep('success');
       
       toast({
@@ -163,6 +158,7 @@ const ZoomConnectionWizard = ({ isOpen, onClose, onSuccess }: ZoomConnectionWiza
       
       setError(errorMessage);
       setCurrentStep('credentials');
+      setCanRetry(true);
       
       toast({
         title: "Connection Failed",
@@ -180,6 +176,7 @@ const ZoomConnectionWizard = ({ isOpen, onClose, onSuccess }: ZoomConnectionWiza
       setCurrentStep('welcome');
       setError(null);
       setTestProgress(0);
+      setCanRetry(false);
       onClose();
     }
   };
@@ -231,9 +228,20 @@ const ZoomConnectionWizard = ({ isOpen, onClose, onSuccess }: ZoomConnectionWiza
               <div className="bg-red-50 border border-red-200 rounded-lg p-3">
                 <div className="flex items-start space-x-2">
                   <AlertTriangle className="w-4 h-4 text-red-600 mt-0.5" />
-                  <div>
+                  <div className="flex-1">
                     <p className="text-sm text-red-800 font-medium">Connection Failed</p>
                     <p className="text-sm text-red-700">{error}</p>
+                    {canRetry && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="mt-2"
+                        onClick={handleRetry}
+                      >
+                        <RefreshCw className="w-3 h-3 mr-1" />
+                        Try Again
+                      </Button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -333,10 +341,6 @@ const ZoomConnectionWizard = ({ isOpen, onClose, onSuccess }: ZoomConnectionWiza
                 <div className="flex items-center justify-center space-x-2 text-sm text-gray-600">
                   <div className={`w-2 h-2 rounded-full ${testProgress >= 50 ? 'bg-blue-600' : 'bg-gray-300'}`} />
                   <span>Testing Zoom API connection</span>
-                </div>
-                <div className="flex items-center justify-center space-x-2 text-sm text-gray-600">
-                  <div className={`w-2 h-2 rounded-full ${testProgress >= 80 ? 'bg-blue-600' : 'bg-gray-300'}`} />
-                  <span>Activating integration</span>
                 </div>
                 <div className="flex items-center justify-center space-x-2 text-sm text-gray-600">
                   <div className={`w-2 h-2 rounded-full ${testProgress >= 100 ? 'bg-green-600' : 'bg-gray-300'}`} />
