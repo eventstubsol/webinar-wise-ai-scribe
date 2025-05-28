@@ -36,6 +36,8 @@ export interface SyncProgress {
     qa_synced?: number;
     registrations_synced?: number;
     comprehensive_coverage?: string;
+    error_type?: string;
+    error_details?: string;
   };
   apiRequestsUsed?: number;
   estimatedTimeRemaining?: string;
