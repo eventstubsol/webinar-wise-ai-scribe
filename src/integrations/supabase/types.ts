@@ -831,6 +831,7 @@ export type Database = {
           registrants_count: number | null
           start_time: string | null
           start_url: string | null
+          status: Database["public"]["Enums"]["webinar_status"] | null
           timezone: string | null
           title: string
           transition_to_live: boolean | null
@@ -864,6 +865,7 @@ export type Database = {
           registrants_count?: number | null
           start_time?: string | null
           start_url?: string | null
+          status?: Database["public"]["Enums"]["webinar_status"] | null
           timezone?: string | null
           title: string
           transition_to_live?: boolean | null
@@ -897,6 +899,7 @@ export type Database = {
           registrants_count?: number | null
           start_time?: string | null
           start_url?: string | null
+          status?: Database["public"]["Enums"]["webinar_status"] | null
           timezone?: string | null
           title?: string
           transition_to_live?: boolean | null
@@ -1328,9 +1331,19 @@ export type Database = {
         Args: { _role: Database["public"]["Enums"]["user_role"] }
         Returns: boolean
       }
+      update_webinar_status: {
+        Args: Record<PropertyKey, never>
+        Returns: undefined
+      }
     }
     Enums: {
       user_role: "admin" | "analyst" | "host" | "viewer"
+      webinar_status:
+        | "scheduled"
+        | "upcoming"
+        | "live"
+        | "completed"
+        | "cancelled"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -1447,6 +1460,13 @@ export const Constants = {
   public: {
     Enums: {
       user_role: ["admin", "analyst", "host", "viewer"],
+      webinar_status: [
+        "scheduled",
+        "upcoming",
+        "live",
+        "completed",
+        "cancelled",
+      ],
     },
   },
 } as const

@@ -17,6 +17,8 @@ interface ZoomWebinar {
   join_url: string
   registrants_count?: number
   created_at: string
+  status?: string
+  type?: number
 }
 
 // Token management functions
@@ -103,6 +105,36 @@ async function getZoomAccessToken(userId: string, supabaseClient: any): Promise<
     console.error('Error getting access token:', error)
     throw error
   }
+}
+
+// Map Zoom webinar status to our enum
+function mapZoomStatusToOurs(zoomWebinar: ZoomWebinar): string {
+  const now = new Date()
+  const startTime = zoomWebinar.start_time ? new Date(zoomWebinar.start_time) : null
+  
+  // If Zoom provides explicit status, use it
+  if (zoomWebinar.status) {
+    switch (zoomWebinar.status.toLowerCase()) {
+      case 'waiting':
+      case 'started':
+        return 'live'
+      case 'ended':
+        return 'completed'
+      default:
+        break
+    }
+  }
+  
+  // Fallback to time-based logic
+  if (!startTime) return 'scheduled'
+  if (startTime > now) return 'upcoming'
+  
+  // For past webinars, check if they have duration (indicating they happened)
+  if (startTime <= now) {
+    return zoomWebinar.duration && zoomWebinar.duration > 0 ? 'completed' : 'scheduled'
+  }
+  
+  return 'scheduled'
 }
 
 serve(async (req) => {
@@ -202,7 +234,10 @@ serve(async (req) => {
         if (detailResponse.ok) {
           const detailData = await detailResponse.json()
           
-          // Upsert main webinar data with all new fields
+          // Map Zoom status to our status
+          const webinarStatus = mapZoomStatusToOurs(detailData)
+          
+          // Upsert main webinar data with status
           const { data: webinarRecord, error: upsertError } = await supabaseClient
             .from('webinars')
             .upsert({
@@ -230,6 +265,7 @@ serve(async (req) => {
               transition_to_live: detailData.transition_to_live || false,
               creation_source: detailData.creation_source,
               webinar_type: detailData.type?.toString() || 'past',
+              status: webinarStatus, // Set the mapped status
               updated_at: new Date().toISOString(),
             }, {
               onConflict: 'zoom_webinar_id',

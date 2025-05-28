@@ -44,8 +44,10 @@ const WebinarsFilters = ({ filters, onFiltersChange }: WebinarsFiltersProps) => 
             <SelectContent>
               <SelectItem value="all">All Webinars</SelectItem>
               <SelectItem value="upcoming">Upcoming</SelectItem>
+              <SelectItem value="live">Live</SelectItem>
               <SelectItem value="completed">Completed</SelectItem>
-              <SelectItem value="in_progress">In Progress</SelectItem>
+              <SelectItem value="scheduled">Scheduled</SelectItem>
+              <SelectItem value="cancelled">Cancelled</SelectItem>
             </SelectContent>
           </Select>
 

@@ -39,3 +39,5 @@ export interface SyncProgress {
   apiRequestsUsed?: number;
   estimatedTimeRemaining?: string;
 }
+
+export type WebinarStatus = 'scheduled' | 'upcoming' | 'live' | 'completed' | 'cancelled';

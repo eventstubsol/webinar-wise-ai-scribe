@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Calendar, Users, Clock, RefreshCw, ExternalLink } from "lucide-react";
 import { useWebinarData } from "@/hooks/useWebinarData";
 import { useZoomIntegration } from "@/hooks/useZoomIntegration";
+import { WebinarStatus } from "@/types/sync";
 
 interface WebinarsListProps {
   filters: {
@@ -19,32 +20,31 @@ const WebinarsList = ({ filters }: WebinarsListProps) => {
   const { syncing, syncWebinarData } = useZoomIntegration();
 
   const filteredWebinars = webinars.filter((webinar) => {
+    // Search filter
     if (filters.search) {
-      return webinar.title.toLowerCase().includes(filters.search.toLowerCase()) ||
+      const searchMatch = webinar.title.toLowerCase().includes(filters.search.toLowerCase()) ||
              webinar.host_name?.toLowerCase().includes(filters.search.toLowerCase());
+      if (!searchMatch) return false;
     }
+
+    // Status filter - now using database status
+    if (filters.status !== 'all') {
+      if (webinar.status !== filters.status) return false;
+    }
+
     return true;
   });
 
-  const getWebinarStatus = (webinar: any) => {
-    const now = new Date();
-    const startTime = webinar.start_time ? new Date(webinar.start_time) : null;
-    const endTime = webinar.end_time ? new Date(webinar.end_time) : null;
-
-    if (!startTime) return 'scheduled';
-    if (startTime > now) return 'upcoming';
-    if (endTime && endTime < now) return 'completed';
-    return 'in_progress';
-  };
-
-  const getStatusBadge = (status: string) => {
+  const getStatusBadge = (status: WebinarStatus) => {
     switch (status) {
       case 'upcoming':
         return <Badge variant="outline" className="bg-blue-100 text-blue-800">Upcoming</Badge>;
       case 'completed':
         return <Badge variant="outline" className="bg-green-100 text-green-800">Completed</Badge>;
-      case 'in_progress':
-        return <Badge variant="outline" className="bg-yellow-100 text-yellow-800">In Progress</Badge>;
+      case 'live':
+        return <Badge variant="outline" className="bg-red-100 text-red-800">Live</Badge>;
+      case 'cancelled':
+        return <Badge variant="outline" className="bg-gray-100 text-gray-800">Cancelled</Badge>;
       default:
         return <Badge variant="outline" className="bg-gray-100 text-gray-800">Scheduled</Badge>;
     }
@@ -81,66 +81,63 @@ const WebinarsList = ({ filters }: WebinarsListProps) => {
 
       {filteredWebinars.length > 0 ? (
         <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
-          {filteredWebinars.map((webinar) => {
-            const status = getWebinarStatus(webinar);
-            return (
-              <Card key={webinar.id} className="hover:shadow-md transition-shadow">
-                <CardHeader className="pb-3">
-                  <div className="flex items-start justify-between">
-                    <CardTitle className="text-lg leading-tight">{webinar.title}</CardTitle>
-                    {getStatusBadge(status)}
+          {filteredWebinars.map((webinar) => (
+            <Card key={webinar.id} className="hover:shadow-md transition-shadow">
+              <CardHeader className="pb-3">
+                <div className="flex items-start justify-between">
+                  <CardTitle className="text-lg leading-tight">{webinar.title}</CardTitle>
+                  {getStatusBadge(webinar.status)}
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="space-y-2 text-sm">
+                  <div className="flex items-center space-x-2">
+                    <Calendar className="w-4 h-4 text-gray-400" />
+                    <span>
+                      {webinar.start_time 
+                        ? new Date(webinar.start_time).toLocaleDateString('en-US', {
+                            year: 'numeric',
+                            month: 'short',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })
+                        : 'Date not set'
+                      }
+                    </span>
                   </div>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="space-y-2 text-sm">
+
+                  <div className="flex items-center space-x-2">
+                    <Users className="w-4 h-4 text-gray-400" />
+                    <span>
+                      {webinar.attendees_count || 0} attendees
+                      {webinar.registrants_count && ` (${webinar.registrants_count} registered)`}
+                    </span>
+                  </div>
+
+                  {webinar.duration_minutes && (
                     <div className="flex items-center space-x-2">
-                      <Calendar className="w-4 h-4 text-gray-400" />
-                      <span>
-                        {webinar.start_time 
-                          ? new Date(webinar.start_time).toLocaleDateString('en-US', {
-                              year: 'numeric',
-                              month: 'short',
-                              day: 'numeric',
-                              hour: '2-digit',
-                              minute: '2-digit'
-                            })
-                          : 'Date not set'
-                        }
-                      </span>
+                      <Clock className="w-4 h-4 text-gray-400" />
+                      <span>{webinar.duration_minutes} minutes</span>
                     </div>
+                  )}
 
-                    <div className="flex items-center space-x-2">
-                      <Users className="w-4 h-4 text-gray-400" />
-                      <span>
-                        {webinar.attendees_count || 0} attendees
-                        {webinar.registrants_count && ` (${webinar.registrants_count} registered)`}
-                      </span>
+                  {webinar.host_name && (
+                    <div className="text-gray-600">
+                      Host: {webinar.host_name}
                     </div>
+                  )}
+                </div>
 
-                    {webinar.duration_minutes && (
-                      <div className="flex items-center space-x-2">
-                        <Clock className="w-4 h-4 text-gray-400" />
-                        <span>{webinar.duration_minutes} minutes</span>
-                      </div>
-                    )}
-
-                    {webinar.host_name && (
-                      <div className="text-gray-600">
-                        Host: {webinar.host_name}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="pt-2">
-                    <Button variant="outline" size="sm" className="w-full flex items-center space-x-2">
-                      <ExternalLink className="w-4 h-4" />
-                      <span>View Details</span>
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
+                <div className="pt-2">
+                  <Button variant="outline" size="sm" className="w-full flex items-center space-x-2">
+                    <ExternalLink className="w-4 h-4" />
+                    <span>View Details</span>
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
         </div>
       ) : (
         <Card>
@@ -148,12 +145,12 @@ const WebinarsList = ({ filters }: WebinarsListProps) => {
             <Calendar className="w-12 h-12 text-gray-300 mx-auto mb-4" />
             <h3 className="text-lg font-medium text-gray-900 mb-2">No webinars found</h3>
             <p className="text-gray-500 mb-4">
-              {filters.search 
+              {filters.search || filters.status !== 'all'
                 ? "Try adjusting your search or filters"
                 : "Connect your Zoom account and sync data to see webinars here"
               }
             </p>
-            {!filters.search && (
+            {!filters.search && filters.status === 'all' && (
               <Button onClick={syncWebinarData} disabled={syncing}>
                 <RefreshCw className={`w-4 h-4 mr-2 ${syncing ? 'animate-spin' : ''}`} />
                 Sync Webinars

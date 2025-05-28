@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { WebinarStatus } from '@/types/sync';
 
 interface WebinarData {
   id: string;
@@ -12,6 +13,7 @@ interface WebinarData {
   duration_minutes: number | null;
   attendees_count: number | null;
   registrants_count: number | null;
+  status: WebinarStatus;
 }
 
 interface AttendeeData {
@@ -37,10 +39,13 @@ export const useWebinarData = () => {
       setLoading(true);
       setError(null);
       
-      // Fetch webinars with better error handling
+      // Update webinar status before fetching
+      await supabase.rpc('update_webinar_status');
+      
+      // Fetch webinars with status column
       const { data: webinarsData, error: webinarsError } = await supabase
         .from('webinars')
-        .select('id, title, host_name, start_time, end_time, duration_minutes, attendees_count, registrants_count')
+        .select('id, title, host_name, start_time, end_time, duration_minutes, attendees_count, registrants_count, status')
         .order('created_at', { ascending: false })
         .limit(20);
 
@@ -58,6 +63,7 @@ export const useWebinarData = () => {
         duration_minutes: w.duration_minutes,
         attendees_count: w.attendees_count || 0,
         registrants_count: w.registrants_count || 0,
+        status: w.status as WebinarStatus,
       }));
 
       setWebinars(transformedWebinars);
@@ -73,7 +79,6 @@ export const useWebinarData = () => {
 
         if (attendeesError) {
           console.error('Error fetching attendees:', attendeesError);
-          // Don't throw here, just log the error and continue with empty attendees
           setAttendees([]);
         } else {
           const transformedAttendees = (attendeesData || []).map(a => ({
