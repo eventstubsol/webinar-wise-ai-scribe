@@ -23,7 +23,7 @@ export interface SyncJob {
 }
 
 export interface SyncProgress {
-  stage: 'idle' | 'webinars' | 'webinar_details' | 'participants' | 'chat' | 'polls' | 'qa' | 'registrations' | 'completed' | 'error';
+  stage: 'idle' | 'webinars' | 'webinar_details' | 'participants' | 'chat' | 'polls' | 'qa' | 'registrations' | 'background_processing' | 'completed' | 'error';
   message: string;
   progress: number;
   details?: {
