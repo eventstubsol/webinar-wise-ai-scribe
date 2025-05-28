@@ -51,61 +51,75 @@ export const useZoomSync = () => {
     setSyncing(true);
     setSyncProgress({ 
       stage: 'webinars', 
-      message: 'Starting comprehensive rate-limited sync...', 
+      message: 'Starting comprehensive sync...', 
       progress: 5,
       apiRequestsUsed: 0
     });
     
     try {
+      console.log('Starting sync for user:', user.id);
+      
       // Get user's organization
-      const { data: profile } = await supabase
+      const { data: profile, error: profileError } = await supabase
         .from('profiles')
         .select('organization_id')
         .eq('id', user.id)
         .single();
 
-      if (!profile) throw new Error('Unable to get organization information');
+      if (profileError || !profile) {
+        console.error('Profile error:', profileError);
+        throw new Error('Unable to get organization information');
+      }
+
+      console.log('Found organization:', profile.organization_id);
 
       // Check if user has an active Zoom connection
-      const { data: connection } = await supabase
+      const { data: connection, error: connectionError } = await supabase
         .from('zoom_connections')
         .select('connection_status')
         .eq('user_id', user.id)
         .eq('connection_status', 'active')
         .single();
 
-      if (!connection) {
+      if (connectionError || !connection) {
+        console.error('Connection error:', connectionError);
         throw new Error('No active Zoom connection found. Please connect your Zoom account first.');
       }
 
+      console.log('Active Zoom connection found');
+
       setSyncProgress({ 
         stage: 'webinars', 
-        message: 'Starting comprehensive rate-limited sync...', 
+        message: 'Starting comprehensive sync...', 
         progress: 10,
         apiRequestsUsed: 0
       });
 
-      // Start comprehensive rate-limited sync
-      const syncResponse = await supabase.functions.invoke('zoom-comprehensive-sync', {
+      console.log('Calling zoom-sync-all function...');
+
+      // Start comprehensive sync using the existing zoom-sync-all function
+      const syncResponse = await supabase.functions.invoke('zoom-sync-all', {
         body: { 
           organization_id: profile.organization_id,
           user_id: user.id 
         }
       });
 
+      console.log('Sync response:', syncResponse);
+
       if (syncResponse.error) {
-        throw new Error(syncResponse.error.message);
+        console.error('Sync function error:', syncResponse.error);
+        throw new Error(syncResponse.error.message || 'Sync function failed');
       }
 
       const result = syncResponse.data;
-      console.log('Comprehensive rate-limited sync result:', result);
+      console.log('Comprehensive sync result:', result);
 
       // Handle the response structure properly
       if (result && result.success) {
-        // Success message will be handled by the useEffect that monitors sync jobs
         toast({
           title: "Comprehensive Sync Started",
-          description: "Your data sync is running with intelligent rate limiting. This may take several minutes for large datasets.",
+          description: "Your data sync is running. This may take several minutes for large datasets.",
         });
 
         // Show summary if available
@@ -119,6 +133,7 @@ export const useZoomSync = () => {
           }
         }
       } else {
+        console.error('Sync failed with result:', result);
         throw new Error(result?.error || 'Unknown error occurred during sync');
       }
 
