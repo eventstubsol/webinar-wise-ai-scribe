@@ -3,7 +3,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { RefreshCw, Link2, Unlink, Clock, CheckCircle, XCircle, AlertCircle } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
+import { RefreshCw, Link2, Unlink, Clock, CheckCircle, XCircle, AlertCircle, Database, Users } from "lucide-react";
 import { useZoomIntegration } from "@/hooks/useZoomIntegration";
 
 const ZoomIntegration = () => {
@@ -17,6 +18,9 @@ const ZoomIntegration = () => {
     syncWebinarData,
     disconnectZoom,
   } = useZoomIntegration();
+
+  // Get sync progress from the hook
+  const syncProgress = (useZoomIntegration as any)().syncProgress || { stage: 'idle', message: '', progress: 0 };
 
   if (loading) {
     return (
@@ -36,7 +40,7 @@ const ZoomIntegration = () => {
       case 'failed':
         return <XCircle className="w-4 h-4 text-red-500" />;
       case 'started':
-        return <Clock className="w-4 h-4 text-blue-500" />;
+        return <Clock className="w-4 h-4 text-blue-500 animate-spin" />;
       default:
         return <AlertCircle className="w-4 h-4 text-gray-500" />;
     }
@@ -52,6 +56,21 @@ const ZoomIntegration = () => {
         return 'bg-blue-100 text-blue-800';
       default:
         return 'bg-gray-100 text-gray-800';
+    }
+  };
+
+  const getSyncStageIcon = (stage: string) => {
+    switch (stage) {
+      case 'webinars':
+        return <Database className="w-4 h-4" />;
+      case 'participants':
+        return <Users className="w-4 h-4" />;
+      case 'completed':
+        return <CheckCircle className="w-4 h-4 text-green-500" />;
+      case 'error':
+        return <XCircle className="w-4 h-4 text-red-500" />;
+      default:
+        return <RefreshCw className="w-4 h-4" />;
     }
   };
 
@@ -74,7 +93,7 @@ const ZoomIntegration = () => {
                       Connected
                     </Badge>
                     <span className="text-sm text-gray-600">
-                      {zoomConnection?.zoom_email}
+                      {zoomConnection?.zoom_email || 'Account connected'}
                     </span>
                   </div>
                   <p className="text-sm text-gray-500 mt-1">
@@ -94,18 +113,39 @@ const ZoomIntegration = () => {
 
               <Separator />
 
-              <div className="flex items-center space-x-4">
-                <Button
-                  onClick={syncWebinarData}
-                  disabled={syncing}
-                  className="flex items-center space-x-2"
-                >
-                  <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
-                  <span>{syncing ? 'Syncing...' : 'Sync Webinar Data'}</span>
-                </Button>
-                <p className="text-sm text-gray-600">
-                  Sync your latest webinar data from Zoom
-                </p>
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="font-medium">Data Synchronization</h4>
+                    <p className="text-sm text-gray-600">
+                      Sync your latest webinar data from Zoom
+                    </p>
+                  </div>
+                  <Button
+                    onClick={syncWebinarData}
+                    disabled={syncing}
+                    className="flex items-center space-x-2"
+                  >
+                    <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
+                    <span>{syncing ? 'Syncing...' : 'Sync Data'}</span>
+                  </Button>
+                </div>
+
+                {/* Sync Progress */}
+                {syncing && syncProgress.stage !== 'idle' && (
+                  <div className="space-y-3 p-4 bg-blue-50 rounded-lg border">
+                    <div className="flex items-center space-x-2">
+                      {getSyncStageIcon(syncProgress.stage)}
+                      <span className="font-medium text-sm">
+                        {syncProgress.message}
+                      </span>
+                    </div>
+                    <Progress value={syncProgress.progress} className="w-full" />
+                    <p className="text-xs text-gray-600">
+                      {syncProgress.progress}% complete
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
           ) : (
@@ -127,6 +167,7 @@ const ZoomIntegration = () => {
         </CardContent>
       </Card>
 
+      {/* Sync History */}
       {syncLogs.length > 0 && (
         <Card>
           <CardHeader>
@@ -138,7 +179,7 @@ const ZoomIntegration = () => {
           <CardContent>
             <div className="space-y-3">
               {syncLogs.map((log) => (
-                <div key={log.id} className="flex items-center justify-between py-2 border-b last:border-b-0">
+                <div key={log.id} className="flex items-center justify-between py-3 border-b last:border-b-0">
                   <div className="flex items-center space-x-3">
                     {getStatusIcon(log.status)}
                     <div>
@@ -150,8 +191,8 @@ const ZoomIntegration = () => {
                       </div>
                       <p className="text-sm text-gray-600">
                         {new Date(log.started_at).toLocaleString()}
-                        {log.records_processed !== null && (
-                          <span className="ml-2">• {log.records_processed} records</span>
+                        {log.records_processed !== null && log.records_processed > 0 && (
+                          <span className="ml-2">• {log.records_processed} records processed</span>
                         )}
                       </p>
                       {log.error_message && (

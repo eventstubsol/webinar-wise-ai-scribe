@@ -1,3 +1,4 @@
+
 import { useZoomConnection } from './useZoomConnection';
 import { useZoomSync } from './useZoomSync';
 
@@ -14,6 +15,7 @@ export const useZoomIntegration = () => {
   const {
     syncLogs,
     syncing,
+    syncProgress,
     syncWebinarData,
     refreshLogs,
   } = useZoomSync();
@@ -32,6 +34,7 @@ export const useZoomIntegration = () => {
     syncLogs,
     loading,
     syncing,
+    syncProgress,
     isConnected,
     initializeZoomOAuth,
     syncWebinarData: handleSyncWebinarData,

@@ -19,6 +19,92 @@ interface ZoomWebinar {
   created_at: string
 }
 
+// Token management functions
+async function decryptCredential(encryptedText: string, key: string): Promise<string> {
+  try {
+    const combined = Uint8Array.from(atob(encryptedText), c => c.charCodeAt(0))
+    const iv = combined.slice(0, 12)
+    const encrypted = combined.slice(12)
+    
+    const encoder = new TextEncoder()
+    const keyData = encoder.encode(key.slice(0, 32).padEnd(32, '0'))
+    
+    const cryptoKey = await crypto.subtle.importKey(
+      'raw',
+      keyData,
+      { name: 'AES-GCM' },
+      false,
+      ['decrypt']
+    )
+    
+    const decrypted = await crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv },
+      cryptoKey,
+      encrypted
+    )
+    
+    return new TextDecoder().decode(decrypted)
+  } catch (error) {
+    console.error('Decryption error:', error)
+    throw new Error('Failed to decrypt credential')
+  }
+}
+
+async function getZoomAccessToken(userId: string, supabaseClient: any): Promise<string> {
+  console.log('Getting Zoom access token for user:', userId)
+  
+  // Get the zoom connection with encrypted credentials
+  const { data: connection, error: connectionError } = await supabaseClient
+    .from('zoom_connections')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('connection_status', 'active')
+    .single()
+
+  if (connectionError || !connection) {
+    console.error('No active Zoom connection found:', connectionError)
+    throw new Error('No active Zoom connection found')
+  }
+
+  if (!connection.encrypted_client_id || !connection.encrypted_client_secret) {
+    throw new Error('Zoom credentials not found')
+  }
+
+  // Create decryption key (same as used in zoom-store-credentials)
+  const encryptionKey = `${userId}-${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')?.slice(0, 32)}`
+  
+  try {
+    const clientId = await decryptCredential(connection.encrypted_client_id, encryptionKey)
+    const clientSecret = await decryptCredential(connection.encrypted_client_secret, encryptionKey)
+    
+    console.log('Decrypted credentials successfully')
+    
+    // Get access token using account credentials (server-to-server OAuth)
+    const tokenResponse = await fetch('https://zoom.us/oauth/token', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Basic ${btoa(`${clientId}:${clientSecret}`)}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: 'grant_type=account_credentials&account_id=' + encodeURIComponent(await decryptCredential(connection.encrypted_account_id, encryptionKey)),
+    })
+
+    const tokenData = await tokenResponse.json()
+    
+    if (!tokenResponse.ok) {
+      console.error('Token request failed:', tokenData)
+      throw new Error(`Failed to get access token: ${tokenData.error || tokenData.message}`)
+    }
+
+    console.log('Successfully obtained access token')
+    return tokenData.access_token
+    
+  } catch (error) {
+    console.error('Error getting access token:', error)
+    throw error
+  }
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -30,46 +116,40 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     )
 
-    const { organization_id } = await req.json()
+    const { organization_id, user_id } = await req.json()
     
-    if (!organization_id) {
-      throw new Error('Organization ID is required')
+    if (!organization_id || !user_id) {
+      throw new Error('Organization ID and User ID are required')
     }
 
-    // Get organization's Zoom tokens
-    const { data: org, error: orgError } = await supabaseClient
-      .from('organizations')
-      .select('zoom_access_token, zoom_refresh_token, zoom_token_expires_at')
-      .eq('id', organization_id)
-      .single()
+    console.log('Starting webinar sync for user:', user_id, 'org:', organization_id)
 
-    if (orgError || !org?.zoom_access_token) {
-      throw new Error('Organization not connected to Zoom')
-    }
-
-    // Check if token needs refresh
-    let accessToken = org.zoom_access_token
-    if (org.zoom_token_expires_at && new Date(org.zoom_token_expires_at) <= new Date()) {
-      // Refresh token logic would go here
-      console.log('Token expired, refresh logic needed')
-    }
+    // Get access token using the new token management
+    const accessToken = await getZoomAccessToken(user_id, supabaseClient)
 
     // Log sync start
     const { data: syncLog } = await supabaseClient
       .from('sync_logs')
       .insert({
         organization_id,
+        user_id,
         sync_type: 'webinars',
         status: 'started',
       })
       .select()
       .single()
 
+    console.log('Created sync log:', syncLog?.id)
+
     // Fetch webinars from Zoom API
     let allWebinars: ZoomWebinar[] = []
     let nextPageToken = ''
+    let pageCount = 0
     
     do {
+      pageCount++
+      console.log(`Fetching page ${pageCount} of webinars...`)
+      
       const params = new URLSearchParams({
         page_size: '300',
         type: 'past',
@@ -89,18 +169,26 @@ serve(async (req) => {
       const data = await response.json()
       
       if (!response.ok) {
+        console.error('Zoom API error:', data)
         throw new Error(`Zoom API error: ${data.message || data.error}`)
       }
 
-      allWebinars = allWebinars.concat(data.webinars || [])
+      const webinars = data.webinars || []
+      allWebinars = allWebinars.concat(webinars)
       nextPageToken = data.next_page_token || ''
       
-    } while (nextPageToken)
+      console.log(`Page ${pageCount}: Found ${webinars.length} webinars`)
+      
+      // Add small delay to respect rate limits
+      await new Promise(resolve => setTimeout(resolve, 100))
+      
+    } while (nextPageToken && pageCount < 10) // Safety limit
 
-    console.log(`Found ${allWebinars.length} webinars`)
+    console.log(`Total webinars found: ${allWebinars.length}`)
 
     // Process and store webinars
     let processedCount = 0
+    let errorCount = 0
     
     for (const zoomWebinar of allWebinars) {
       try {
@@ -111,15 +199,16 @@ serve(async (req) => {
           },
         })
 
-        const detailData = await detailResponse.json()
-        
         if (detailResponse.ok) {
+          const detailData = await detailResponse.json()
+          
           // Upsert webinar data
           const { error: upsertError } = await supabaseClient
             .from('webinars')
             .upsert({
               zoom_webinar_id: zoomWebinar.id,
               organization_id,
+              user_id,
               title: zoomWebinar.topic,
               host_name: detailData.host_email || zoomWebinar.host_email,
               start_time: zoomWebinar.start_time,
@@ -132,25 +221,39 @@ serve(async (req) => {
 
           if (!upsertError) {
             processedCount++
+            if (processedCount % 10 === 0) {
+              console.log(`Processed ${processedCount} webinars...`)
+            }
           } else {
             console.error('Error upserting webinar:', upsertError)
+            errorCount++
           }
+        } else {
+          console.warn(`Failed to get details for webinar ${zoomWebinar.id}`)
+          errorCount++
         }
         
         // Add small delay to respect rate limits
-        await new Promise(resolve => setTimeout(resolve, 100))
+        await new Promise(resolve => setTimeout(resolve, 50))
         
       } catch (error) {
         console.error(`Error processing webinar ${zoomWebinar.id}:`, error)
+        errorCount++
       }
     }
 
+    console.log(`Sync completed: ${processedCount} processed, ${errorCount} errors`)
+
     // Update sync log
+    const syncStatus = errorCount > 0 && processedCount === 0 ? 'failed' : 'completed'
+    const errorMessage = errorCount > 0 ? `${errorCount} webinars failed to process` : null
+    
     await supabaseClient
       .from('sync_logs')
       .update({
-        status: 'completed',
+        status: syncStatus,
         records_processed: processedCount,
+        error_message: errorMessage,
         completed_at: new Date().toISOString(),
       })
       .eq('id', syncLog?.id)
@@ -159,7 +262,8 @@ serve(async (req) => {
       JSON.stringify({ 
         success: true, 
         webinars_synced: processedCount,
-        total_found: allWebinars.length 
+        total_found: allWebinars.length,
+        errors: errorCount
       }),
       {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -168,6 +272,31 @@ serve(async (req) => {
 
   } catch (error) {
     console.error('Sync error:', error)
+    
+    // Try to update sync log with error
+    try {
+      const supabaseClient = createClient(
+        Deno.env.get('SUPABASE_URL') ?? '',
+        Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+      )
+      
+      const { user_id } = await req.json().catch(() => ({}))
+      
+      if (user_id) {
+        await supabaseClient
+          .from('sync_logs')
+          .insert({
+            organization_id: 'unknown',
+            user_id,
+            sync_type: 'webinars',
+            status: 'failed',
+            error_message: error.message,
+            completed_at: new Date().toISOString(),
+          })
+      }
+    } catch (logError) {
+      console.error('Failed to log error:', logError)
+    }
     
     return new Response(
       JSON.stringify({ error: error.message }),
