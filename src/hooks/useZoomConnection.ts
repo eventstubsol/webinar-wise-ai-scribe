@@ -54,74 +54,6 @@ export const useZoomConnection = () => {
     }
   };
 
-  const initializeZoomOAuth = async () => {
-    try {
-      if (!user?.id) {
-        toast({
-          title: "Error",
-          description: "User not authenticated",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      console.log('Initializing Zoom OAuth...');
-
-      const { data, error } = await supabase.functions.invoke('zoom-oauth-initiate');
-
-      if (error) {
-        console.error('OAuth initiate error:', error);
-        throw new Error(error.message);
-      }
-
-      if (data?.auth_url) {
-        console.log('Opening OAuth URL in new window:', data.auth_url);
-        
-        // Open OAuth in a new window
-        const oauthWindow = window.open(
-          data.auth_url,
-          'zoom_oauth',
-          'width=600,height=700,scrollbars=yes,resizable=yes'
-        );
-
-        // Poll to detect when the window closes
-        const pollTimer = setInterval(() => {
-          if (oauthWindow?.closed) {
-            clearInterval(pollTimer);
-            console.log('OAuth window closed, refreshing connection status...');
-            
-            // Wait a moment for the backend to process, then refresh
-            setTimeout(() => {
-              fetchZoomConnection();
-            }, 2000);
-          }
-        }, 1000);
-
-        // Clean up polling if window is still open after 10 minutes
-        setTimeout(() => {
-          clearInterval(pollTimer);
-          if (oauthWindow && !oauthWindow.closed) {
-            oauthWindow.close();
-          }
-        }, 600000);
-
-        toast({
-          title: "OAuth Window Opened",
-          description: "Please complete the Zoom authorization in the new window.",
-        });
-      } else {
-        throw new Error('Failed to get authorization URL');
-      }
-    } catch (error: any) {
-      console.error('OAuth initialization error:', error);
-      toast({
-        title: "Error",
-        description: error.message || "Failed to initialize Zoom OAuth",
-        variant: "destructive",
-      });
-    }
-  };
-
   const disconnectZoom = async () => {
     try {
       if (zoomConnection) {
@@ -132,15 +64,6 @@ export const useZoomConnection = () => {
           .eq('user_id', user?.id);
 
         if (error) throw error;
-
-        await supabase
-          .from('profiles')
-          .update({
-            zoom_access_token: null,
-            zoom_refresh_token: null,
-            zoom_token_expires_at: null,
-          })
-          .eq('id', user?.id);
 
         setZoomConnection(null);
         
@@ -163,7 +86,6 @@ export const useZoomConnection = () => {
     zoomConnection,
     loading,
     isConnected: !!zoomConnection && zoomConnection.connection_status === 'active',
-    initializeZoomOAuth,
     disconnectZoom,
     refreshConnection: fetchZoomConnection,
   };

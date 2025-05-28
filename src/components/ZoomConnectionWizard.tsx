@@ -23,7 +23,6 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { CheckCircle, Link2, Loader2, ArrowRight, ArrowLeft, ExternalLink, AlertTriangle } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
-import { useZoomIntegration } from '@/hooks/useZoomIntegration';
 import { supabase } from '@/integrations/supabase/client';
 
 const credentialsSchema = z.object({
@@ -40,13 +39,13 @@ interface ZoomConnectionWizardProps {
   onSuccess?: () => void;
 }
 
-type WizardStep = 'welcome' | 'credentials' | 'connecting' | 'success';
+type WizardStep = 'welcome' | 'credentials' | 'testing' | 'success';
 
 const ZoomConnectionWizard = ({ isOpen, onClose, onSuccess }: ZoomConnectionWizardProps) => {
   const [currentStep, setCurrentStep] = useState<WizardStep>('welcome');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { initializeZoomOAuth } = useZoomIntegration();
+  const [testProgress, setTestProgress] = useState(0);
   
   const form = useForm<CredentialsForm>({
     resolver: zodResolver(credentialsSchema),
@@ -58,7 +57,7 @@ const ZoomConnectionWizard = ({ isOpen, onClose, onSuccess }: ZoomConnectionWiza
   });
 
   const getStepNumber = (step: WizardStep): number => {
-    const steps = { welcome: 1, credentials: 2, connecting: 3, success: 4 };
+    const steps = { welcome: 1, credentials: 2, testing: 3, success: 4 };
     return steps[step];
   };
 
@@ -82,13 +81,15 @@ const ZoomConnectionWizard = ({ isOpen, onClose, onSuccess }: ZoomConnectionWiza
 
   const handleCredentialsSubmit = async (data: CredentialsForm) => {
     setIsLoading(true);
-    setCurrentStep('connecting');
+    setCurrentStep('testing');
     setError(null);
+    setTestProgress(0);
     
     try {
-      console.log('Storing Zoom credentials...');
+      console.log('Starting credential validation...');
+      setTestProgress(20);
       
-      // Store credentials using the edge function
+      // Step 1: Store credentials
       const { data: storeResponse, error: storeError } = await supabase.functions.invoke('zoom-store-credentials', {
         body: {
           clientId: data.clientId,
@@ -99,7 +100,7 @@ const ZoomConnectionWizard = ({ isOpen, onClose, onSuccess }: ZoomConnectionWiza
 
       if (storeError) {
         console.error('Store error:', storeError);
-        throw new Error(`Store error: ${storeError.message}`);
+        throw new Error(`Failed to store credentials: ${storeError.message}`);
       }
 
       if (!storeResponse?.success) {
@@ -107,26 +108,54 @@ const ZoomConnectionWizard = ({ isOpen, onClose, onSuccess }: ZoomConnectionWiza
         throw new Error(storeResponse?.error || 'Failed to store credentials');
       }
 
-      console.log('Credentials stored successfully, starting OAuth...');
+      console.log('Credentials stored successfully');
+      setTestProgress(50);
       
-      // Wait a moment for credentials to be stored
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      // Start OAuth flow (this will open in a new window)
-      await initializeZoomOAuth();
-      
+      // Step 2: Test credentials by making a simple API call
+      console.log('Testing credentials...');
+      const { data: testResponse, error: testError } = await supabase.functions.invoke('zoom-test-connection');
+
+      if (testError) {
+        console.error('Test error:', testError);
+        throw new Error(`Connection test failed: ${testError.message}`);
+      }
+
+      if (!testResponse?.success) {
+        console.error('Test response failed:', testResponse);
+        throw new Error(testResponse?.error || 'Failed to validate credentials with Zoom API');
+      }
+
+      console.log('Credentials validated successfully');
+      setTestProgress(80);
+
+      // Step 3: Update connection status to active
+      const { error: updateError } = await supabase
+        .from('zoom_connections')
+        .update({ 
+          connection_status: 'active',
+          zoom_user_id: testResponse.zoom_user_id || '',
+          zoom_email: testResponse.zoom_email || '',
+        })
+        .eq('user_id', (await supabase.auth.getUser()).data.user?.id);
+
+      if (updateError) {
+        console.error('Update error:', updateError);
+        throw new Error('Failed to update connection status');
+      }
+
+      setTestProgress(100);
       setCurrentStep('success');
       
       toast({
-        title: "OAuth Started",
-        description: "Please complete the authorization in the new window.",
+        title: "Connection Successful!",
+        description: `Successfully connected to Zoom as ${testResponse.zoom_email || 'your account'}`,
       });
       
-      // Close the wizard after a short delay
+      // Close wizard and refresh after short delay
       setTimeout(() => {
         onSuccess?.();
         onClose();
-      }, 3000);
+      }, 2000);
       
     } catch (error) {
       console.error('Connection error:', error);
@@ -150,6 +179,7 @@ const ZoomConnectionWizard = ({ isOpen, onClose, onSuccess }: ZoomConnectionWiza
       form.reset();
       setCurrentStep('welcome');
       setError(null);
+      setTestProgress(0);
       onClose();
     }
   };
@@ -180,8 +210,8 @@ const ZoomConnectionWizard = ({ isOpen, onClose, onSuccess }: ZoomConnectionWiza
             </div>
             <div className="bg-blue-50 p-3 rounded-lg text-left">
               <p className="text-sm text-blue-800">
-                <strong>One-time setup:</strong> Your API credentials will be securely encrypted and stored 
-                for future use. You'll only need to enter them once.
+                <strong>Server-to-Server Integration:</strong> Your API credentials will be securely encrypted 
+                and used for automatic data synchronization without requiring user login.
               </p>
             </div>
           </div>
@@ -193,7 +223,7 @@ const ZoomConnectionWizard = ({ isOpen, onClose, onSuccess }: ZoomConnectionWiza
             <div className="text-center">
               <h3 className="text-lg font-semibold mb-2">Enter API Credentials</h3>
               <p className="text-gray-600">
-                Enter your Zoom API credentials. They will be securely encrypted and stored.
+                Enter your Zoom Server-to-Server OAuth credentials. They will be securely encrypted and tested.
               </p>
             </div>
 
@@ -281,26 +311,37 @@ const ZoomConnectionWizard = ({ isOpen, onClose, onSuccess }: ZoomConnectionWiza
           </div>
         );
 
-      case 'connecting':
+      case 'testing':
         return (
           <div className="space-y-6 text-center">
             <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto">
               <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
             </div>
             <div>
-              <h3 className="text-lg font-semibold mb-2">Storing Credentials</h3>
+              <h3 className="text-lg font-semibold mb-2">Testing Connection</h3>
               <p className="text-gray-600">
-                We're securely storing your credentials and preparing the OAuth flow...
+                We're validating your credentials and testing the connection to Zoom...
               </p>
             </div>
-            <div className="space-y-2">
-              <div className="flex items-center justify-center space-x-2 text-sm text-gray-600">
-                <div className="w-2 h-2 bg-blue-600 rounded-full animate-pulse" />
-                <span>Encrypting and storing credentials</span>
-              </div>
-              <div className="flex items-center justify-center space-x-2 text-sm text-gray-600">
-                <div className="w-2 h-2 bg-gray-300 rounded-full" />
-                <span>Preparing OAuth authorization</span>
+            <div className="space-y-3">
+              <Progress value={testProgress} className="w-full" />
+              <div className="space-y-2">
+                <div className="flex items-center justify-center space-x-2 text-sm text-gray-600">
+                  <div className={`w-2 h-2 rounded-full ${testProgress >= 20 ? 'bg-blue-600' : 'bg-gray-300'}`} />
+                  <span>Storing credentials securely</span>
+                </div>
+                <div className="flex items-center justify-center space-x-2 text-sm text-gray-600">
+                  <div className={`w-2 h-2 rounded-full ${testProgress >= 50 ? 'bg-blue-600' : 'bg-gray-300'}`} />
+                  <span>Testing Zoom API connection</span>
+                </div>
+                <div className="flex items-center justify-center space-x-2 text-sm text-gray-600">
+                  <div className={`w-2 h-2 rounded-full ${testProgress >= 80 ? 'bg-blue-600' : 'bg-gray-300'}`} />
+                  <span>Activating integration</span>
+                </div>
+                <div className="flex items-center justify-center space-x-2 text-sm text-gray-600">
+                  <div className={`w-2 h-2 rounded-full ${testProgress >= 100 ? 'bg-green-600' : 'bg-gray-300'}`} />
+                  <span>Connection established</span>
+                </div>
               </div>
             </div>
           </div>
@@ -313,18 +354,18 @@ const ZoomConnectionWizard = ({ isOpen, onClose, onSuccess }: ZoomConnectionWiza
               <CheckCircle className="w-8 h-8 text-green-600" />
             </div>
             <div>
-              <h3 className="text-lg font-semibold mb-2">OAuth Window Opened!</h3>
+              <h3 className="text-lg font-semibold mb-2">Connection Successful!</h3>
               <p className="text-gray-600 mb-4">
-                Your Zoom credentials have been stored and the OAuth authorization window has opened. 
-                Please complete the authorization in the new window.
+                Your Zoom account has been successfully connected and verified. 
+                You can now sync your webinar data and access all integration features.
               </p>
-              <Badge variant="secondary" className="bg-blue-100 text-blue-800">
-                Authorization Required
+              <Badge variant="secondary" className="bg-green-100 text-green-800">
+                Ready to Sync
               </Badge>
             </div>
-            <div className="bg-blue-50 p-4 rounded-lg">
-              <p className="text-sm text-blue-800">
-                After completing authorization in the new window, your connection status will update automatically.
+            <div className="bg-green-50 p-4 rounded-lg">
+              <p className="text-sm text-green-800">
+                You'll be redirected to your dashboard where you can start syncing your webinar data.
               </p>
             </div>
           </div>
@@ -364,7 +405,7 @@ const ZoomConnectionWizard = ({ isOpen, onClose, onSuccess }: ZoomConnectionWiza
               {isLoading ? (
                 <>
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Storing...
+                  Testing...
                 </>
               ) : (
                 'Store & Connect'
@@ -373,12 +414,12 @@ const ZoomConnectionWizard = ({ isOpen, onClose, onSuccess }: ZoomConnectionWiza
           </div>
         );
 
-      case 'connecting':
+      case 'testing':
         return (
           <div className="flex justify-center">
             <Button disabled>
               <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              Connecting...
+              Testing Connection...
             </Button>
           </div>
         );

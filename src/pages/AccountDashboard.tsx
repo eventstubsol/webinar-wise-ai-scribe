@@ -1,49 +1,15 @@
 
-import { useEffect } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useAuth } from "@/hooks/useAuth";
+import { useZoomIntegration } from "@/hooks/useZoomIntegration";
 import Header from "@/components/Header";
 import Sidebar from "@/components/Sidebar";
 import UserProfileCard from "@/components/UserProfileCard";
 import ZoomConnectionCard from "@/components/ZoomConnectionCard";
 import RecentActivityCard from "@/components/RecentActivityCard";
-import { useAuth } from "@/hooks/useAuth";
-import { useZoomIntegration } from "@/hooks/useZoomIntegration";
-import { toast } from "@/hooks/use-toast";
 
 const AccountDashboard = () => {
   const { user } = useAuth();
-  const { zoomConnection, syncLogs, refreshConnection } = useZoomIntegration();
-  const [searchParams, setSearchParams] = useSearchParams();
-
-  // Handle OAuth completion
-  useEffect(() => {
-    const zoomConnected = searchParams.get('zoom_connected');
-    const zoomError = searchParams.get('zoom_error');
-
-    if (zoomConnected === 'true') {
-      toast({
-        title: "Zoom Connected!",
-        description: "Your Zoom account has been successfully connected. You can now sync your webinar data.",
-      });
-      
-      // Refresh the connection status
-      refreshConnection();
-      
-      // Clean up the URL
-      setSearchParams({});
-    }
-
-    if (zoomError) {
-      toast({
-        title: "Connection Failed",
-        description: `Failed to connect to Zoom: ${zoomError}`,
-        variant: "destructive",
-      });
-      
-      // Clean up the URL
-      setSearchParams({});
-    }
-  }, [searchParams, setSearchParams, refreshConnection]);
+  const { zoomConnection, syncLogs } = useZoomIntegration();
 
   return (
     <div className="min-h-screen bg-gray-50">

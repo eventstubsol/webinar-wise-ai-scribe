@@ -1,4 +1,3 @@
-
 import { useZoomConnection } from './useZoomConnection';
 import { useZoomSync } from './useZoomSync';
 
@@ -7,7 +6,6 @@ export const useZoomIntegration = () => {
     zoomConnection,
     loading,
     isConnected,
-    initializeZoomOAuth,
     disconnectZoom,
     refreshConnection,
   } = useZoomConnection();
@@ -36,7 +34,6 @@ export const useZoomIntegration = () => {
     syncing,
     syncProgress,
     isConnected,
-    initializeZoomOAuth,
     syncWebinarData: handleSyncWebinarData,
     disconnectZoom,
     refreshConnection,

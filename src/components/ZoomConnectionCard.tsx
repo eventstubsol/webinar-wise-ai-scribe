@@ -6,7 +6,6 @@ import { Link2, CheckCircle, XCircle, AlertTriangle, RefreshCw, Settings } from 
 import { useZoomIntegration } from "@/hooks/useZoomIntegration";
 import ZoomConnectionWizard from "./ZoomConnectionWizard";
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
 
 interface ZoomConnectionCardProps {
   zoomConnection: any;
@@ -14,12 +13,13 @@ interface ZoomConnectionCardProps {
 }
 
 const ZoomConnectionCard = ({ zoomConnection, isConnected }: ZoomConnectionCardProps) => {
-  const { disconnectZoom, syncing, syncWebinarData } = useZoomIntegration();
+  const { disconnectZoom, syncing, syncWebinarData, refreshConnection } = useZoomIntegration();
   const [isWizardOpen, setIsWizardOpen] = useState(false);
-  const navigate = useNavigate();
 
   const handleWizardSuccess = () => {
-    navigate('/account');
+    // Refresh connection status after successful setup
+    refreshConnection();
+    setIsWizardOpen(false);
   };
 
   return (
