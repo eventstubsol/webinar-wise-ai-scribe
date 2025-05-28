@@ -10,6 +10,7 @@ import { useSyncTimeout } from './useSyncTimeout';
 import { useSyncStatusManager } from './useSyncStatusManager';
 import { useSyncValidation } from './useSyncValidation';
 import { useSyncErrorHandler } from './useSyncErrorHandler';
+import { useChunkedSync } from './useChunkedSync';
 
 export const useZoomSync = () => {
   const { user } = useAuth();
@@ -29,10 +30,14 @@ export const useZoomSync = () => {
   const { validateUserProfile, validateZoomConnection } = useSyncValidation();
   const { handleSyncError } = useSyncErrorHandler();
 
+  // Use chunked sync for improved reliability
+  const chunkedSync = useChunkedSync();
+
   // Use sync status manager to handle job status changes
   useSyncStatusManager(syncJobs, syncing, syncTimeout, setSyncing, clearSyncTimeout);
 
-  const syncWebinarData = async () => {
+  // Legacy sync method (fallback)
+  const syncWebinarDataLegacy = async () => {
     if (!user?.id) {
       toast({
         title: "Error",
@@ -42,7 +47,6 @@ export const useZoomSync = () => {
       return;
     }
 
-    // Prevent multiple concurrent syncs
     if (syncing) {
       toast({
         title: "Sync in Progress",
@@ -55,13 +59,13 @@ export const useZoomSync = () => {
     setSyncing(true);
     setSyncProgress({ 
       stage: 'webinars', 
-      message: 'Initializing robust sync process...', 
+      message: 'Initializing legacy sync process...', 
       progress: 5,
       apiRequestsUsed: 0
     });
     
     try {
-      console.log('Starting robust sync for user:', user.id);
+      console.log('Starting legacy sync for user:', user.id);
       
       // Validate user profile and zoom connection
       const profile = await validateUserProfile(user.id);
@@ -72,14 +76,14 @@ export const useZoomSync = () => {
 
       setSyncProgress({ 
         stage: 'webinars', 
-        message: 'Starting reliable comprehensive sync...', 
+        message: 'Starting legacy comprehensive sync...', 
         progress: 10,
         apiRequestsUsed: 0
       });
 
-      console.log('Calling robust sync function...');
+      console.log('Calling legacy sync function...');
 
-      // Call the sync function with enhanced error handling
+      // Call the legacy sync function
       const syncResponse = await supabase.functions.invoke('zoom-comprehensive-rate-limited-sync', {
         body: { 
           organization_id: profile.organization_id,
@@ -87,51 +91,47 @@ export const useZoomSync = () => {
         }
       });
 
-      console.log('Robust sync response:', syncResponse);
+      console.log('Legacy sync response:', syncResponse);
 
       if (syncResponse.error) {
         console.error('Sync function error:', syncResponse.error);
-        throw new Error(syncResponse.error.message || 'Comprehensive sync function failed');
+        throw new Error(syncResponse.error.message || 'Legacy sync function failed');
       }
 
       const result = syncResponse.data;
-      console.log('Robust sync result:', result);
+      console.log('Legacy sync result:', result);
 
-      // Handle the response with better error checking
       if (result && result.success) {
-        console.log('Sync started successfully');
+        console.log('Legacy sync started successfully');
         
         toast({
-          title: "Sync Started Successfully",
-          description: "Webinar data sync is now running with improved reliability.",
+          title: "Legacy Sync Started",
+          description: "Webinar data sync is running with legacy method.",
         });
 
-        // Show immediate progress feedback
         if (result.summary) {
           const summary = result.summary;
           console.log('Sync summary:', summary);
           
           setSyncProgress({ 
             stage: 'background_processing', 
-            message: 'Basic sync complete. Enhanced processing continues in background...', 
+            message: 'Legacy sync complete. Processing continues in background...', 
             progress: 60,
             apiRequestsUsed: summary.api_requests_made || 0,
             details: {
               webinars_synced: summary.webinars_synced,
               webinars_found: summary.webinars_found,
-              comprehensive_coverage: 'Basic sync complete, detailed processing continues with improved reliability'
+              comprehensive_coverage: 'Legacy sync complete, detailed processing continues'
             }
           });
         }
 
-        // Start timeout management
         startSyncTimeout();
       } else {
-        console.error('Sync failed with result:', result);
-        throw new Error(result?.error || 'Unknown error occurred during sync');
+        console.error('Legacy sync failed with result:', result);
+        throw new Error(result?.error || 'Unknown error occurred during legacy sync');
       }
 
-      // Refresh data after successful start
       await Promise.all([refreshLogs(), refreshJobs()]);
       
     } catch (error: any) {
@@ -139,13 +139,50 @@ export const useZoomSync = () => {
     }
   };
 
+  // Main sync method - use chunked sync by default
+  const syncWebinarData = async () => {
+    console.log('Starting webinar data sync...');
+    
+    try {
+      // Use chunked sync for better reliability
+      await chunkedSync.startChunkedSync();
+      
+      // Refresh logs and jobs after chunked sync
+      await Promise.all([refreshLogs(), refreshJobs()]);
+    } catch (error: any) {
+      console.error('Chunked sync failed, falling back to legacy sync:', error);
+      
+      toast({
+        title: "Switching to Legacy Sync",
+        description: "Chunked sync failed, trying legacy method...",
+        variant: "default",
+      });
+      
+      // Fallback to legacy sync if chunked sync fails
+      await syncWebinarDataLegacy();
+    }
+  };
+
   return {
     syncLogs,
     syncJobs,
-    syncing,
-    syncProgress,
+    syncing: syncing || chunkedSync.syncing,
+    syncProgress: chunkedSync.syncing ? {
+      stage: 'webinars' as const,
+      message: `Processing chunk ${chunkedSync.currentChunk} - ${chunkedSync.totalProcessed} webinars synced`,
+      progress: chunkedSync.progress,
+      details: {
+        webinars_synced: chunkedSync.syncStats.processed,
+        webinars_found: chunkedSync.syncStats.totalFound,
+        chunks_processed: chunkedSync.syncStats.chunks,
+        comprehensive_coverage: 'Chunked sync in progress with enhanced reliability'
+      }
+    } : syncProgress,
     syncWebinarData,
     refreshLogs,
     refreshJobs,
+    // Expose chunked sync stats for debugging
+    chunkedSyncStats: chunkedSync.syncStats,
+    currentChunk: chunkedSync.currentChunk
   };
 };

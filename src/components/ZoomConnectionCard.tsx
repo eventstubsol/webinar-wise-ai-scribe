@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Link2, CheckCircle, XCircle, AlertTriangle, RefreshCw, Settings } from "lucide-react";
 import { useZoomIntegration } from "@/hooks/useZoomIntegration";
 import ZoomConnectionWizard from "./ZoomConnectionWizard";
+import SyncProgressIndicator from "./SyncProgressIndicator";
 import { useState } from "react";
 
 interface ZoomConnectionCardProps {
@@ -13,11 +14,18 @@ interface ZoomConnectionCardProps {
 }
 
 const ZoomConnectionCard = ({ zoomConnection, isConnected }: ZoomConnectionCardProps) => {
-  const { disconnectZoom, syncing, syncWebinarData, refreshConnection } = useZoomIntegration();
+  const { 
+    disconnectZoom, 
+    syncing, 
+    syncProgress, 
+    syncWebinarData, 
+    refreshConnection,
+    chunkedSyncStats,
+    currentChunk
+  } = useZoomIntegration();
   const [isWizardOpen, setIsWizardOpen] = useState(false);
 
   const handleWizardSuccess = () => {
-    // Refresh connection status after successful setup
     refreshConnection();
     setIsWizardOpen(false);
   };
@@ -52,6 +60,16 @@ const ZoomConnectionCard = ({ zoomConnection, isConnected }: ZoomConnectionCardP
                   </p>
                 </div>
               </div>
+
+              {/* Enhanced Sync Progress Indicator */}
+              <SyncProgressIndicator
+                syncing={syncing}
+                progress={syncProgress?.progress || 0}
+                currentChunk={currentChunk}
+                syncStats={chunkedSyncStats}
+                stage={syncProgress?.stage}
+                message={syncProgress?.message}
+              />
 
               <div className="flex space-x-2">
                 <Button 
@@ -99,7 +117,7 @@ const ZoomConnectionCard = ({ zoomConnection, isConnected }: ZoomConnectionCardP
           <div className="pt-2 border-t">
             <div className="flex items-center space-x-2 text-xs text-gray-500">
               <AlertTriangle className="w-3 h-3" />
-              <span>Your Zoom credentials are stored securely and only accessible by you</span>
+              <span>Enhanced sync with chunked processing for improved reliability</span>
             </div>
           </div>
         </CardContent>
