@@ -75,7 +75,15 @@ serve(async (req) => {
             accessToken
           )
 
-          // Create detailed sync job for this webinar - FIXED: Use 'detailed_webinar_sync'
+          // Create detailed sync job for this webinar with proper metadata and sync types
+          const syncTypes = ['participants', 'registrations', 'polls', 'qa']
+          
+          // Add chat only for completed webinars
+          if (detailData.status === 'ended' || result.webinarRecord.status === 'completed') {
+            syncTypes.push('chat')
+            console.log(`Adding chat sync for completed webinar: ${detailData.id}`)
+          }
+
           await supabaseClient
             .from('sync_jobs')
             .insert({
@@ -87,6 +95,9 @@ serve(async (req) => {
                 webinar_zoom_id: detailData.id?.toString(),
                 organization_id,
                 user_id,
+                webinar_id: result.webinarRecord.id,
+                sync_types: syncTypes,
+                webinar_status: result.webinarRecord.status,
                 created_by: 'enhanced_webinar_sync'
               }
             })
