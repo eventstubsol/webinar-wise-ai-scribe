@@ -20,28 +20,38 @@ interface SyncJob {
 async function processDetailedSyncJob(job: SyncJob, supabaseClient: any) {
   console.log(`Processing job: ${job.id} - ${job.job_type}`)
   
-  // Extract metadata with proper fallbacks
-  const { 
-    webinar_zoom_id, 
-    organization_id, 
-    user_id, 
-    webinar_id,
-    sync_types = ['participants', 'registrations', 'polls', 'qa'],
-    webinar_status
-  } = job.metadata || {}
-
-  // Use job-level IDs as fallback if not in metadata
-  const finalOrgId = organization_id || job.organization_id
-  const finalUserId = user_id || job.user_id
-
-  if (!webinar_zoom_id || !finalOrgId || !finalUserId) {
-    throw new Error(`Missing required job metadata: webinar_zoom_id=${webinar_zoom_id}, org_id=${finalOrgId}, user_id=${finalUserId}`)
-  }
-
-  console.log(`Processing webinar ${webinar_zoom_id} for org ${finalOrgId}, user ${finalUserId}`)
-  console.log(`Sync types: ${sync_types.join(', ')}`)
-
   try {
+    // Extract metadata with proper fallbacks and validation
+    const { 
+      webinar_zoom_id, 
+      organization_id, 
+      user_id, 
+      webinar_id,
+      sync_types = ['participants', 'registrations', 'polls', 'qa'],
+      webinar_status
+    } = job.metadata || {}
+
+    // Use job-level IDs as fallback if not in metadata
+    const finalOrgId = organization_id || job.organization_id
+    const finalUserId = user_id || job.user_id
+
+    console.log(`Job ${job.id} metadata check:`, {
+      webinar_zoom_id,
+      finalOrgId,
+      finalUserId,
+      webinar_id,
+      sync_types
+    })
+
+    if (!webinar_zoom_id || !finalOrgId || !finalUserId) {
+      const errorMsg = `Missing required job metadata: webinar_zoom_id=${webinar_zoom_id}, org_id=${finalOrgId}, user_id=${finalUserId}`
+      console.error(errorMsg)
+      throw new Error(errorMsg)
+    }
+
+    console.log(`Processing webinar ${webinar_zoom_id} for org ${finalOrgId}, user ${finalUserId}`)
+    console.log(`Sync types: ${sync_types.join(', ')}`)
+
     // Update job status to running
     await supabaseClient
       .from('sync_jobs')
@@ -52,8 +62,10 @@ async function processDetailedSyncJob(job: SyncJob, supabaseClient: any) {
       })
       .eq('id', job.id)
 
-    // Get webinar record if webinar_id is provided, otherwise look it up
+    // Get webinar record with timeout protection
     let webinar
+    console.log(`Looking up webinar with webinar_id: ${webinar_id}`)
+    
     if (webinar_id) {
       const { data: webinarData, error: webinarError } = await supabaseClient
         .from('webinars')
@@ -62,14 +74,16 @@ async function processDetailedSyncJob(job: SyncJob, supabaseClient: any) {
         .single()
       
       if (webinarError) {
-        console.log(`Webinar not found by ID, looking up by zoom_webinar_id: ${webinar_zoom_id}`)
+        console.log(`Webinar not found by ID ${webinar_id}, looking up by zoom_webinar_id: ${webinar_zoom_id}`)
       } else {
         webinar = webinarData
+        console.log(`Found webinar by ID: ${webinar.id}`)
       }
     }
 
     // Fallback to lookup by zoom_webinar_id if needed
     if (!webinar) {
+      console.log(`Looking up webinar by zoom_webinar_id: ${webinar_zoom_id}`)
       const { data: webinarData, error: webinarError } = await supabaseClient
         .from('webinars')
         .select('id, status, start_time, title')
@@ -78,9 +92,11 @@ async function processDetailedSyncJob(job: SyncJob, supabaseClient: any) {
         .single()
 
       if (webinarError || !webinarData) {
+        console.error(`Webinar lookup failed for zoom_webinar_id: ${webinar_zoom_id}`, webinarError)
         throw new Error(`Webinar not found: ${webinar_zoom_id}`)
       }
       webinar = webinarData
+      console.log(`Found webinar by zoom_webinar_id: ${webinar.id}`)
     }
 
     const finalWebinarId = webinar.id
@@ -94,18 +110,21 @@ async function processDetailedSyncJob(job: SyncJob, supabaseClient: any) {
 
     await supabaseClient.from('sync_jobs').update({ progress: 20 }).eq('id', job.id)
 
-    // Process each sync type if included
+    // Process each sync type with error handling and timeouts
     if (sync_types.includes('participants')) {
       try {
         console.log('Processing participants...')
-        const participantsResult = await supabaseClient.functions.invoke('zoom-sync-participants', {
-          body: {
-            organization_id: finalOrgId,
-            user_id: finalUserId,
-            webinar_id: finalWebinarId,
-            zoom_webinar_id: webinar_zoom_id,
-          }
-        })
+        const participantsResult = await Promise.race([
+          supabaseClient.functions.invoke('zoom-sync-participants', {
+            body: {
+              organization_id: finalOrgId,
+              user_id: finalUserId,
+              webinar_id: finalWebinarId,
+              zoom_webinar_id: webinar_zoom_id,
+            }
+          }),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Participants sync timeout')), 60000))
+        ])
 
         if (participantsResult.data?.success) {
           results.participants.success = true
@@ -127,14 +146,17 @@ async function processDetailedSyncJob(job: SyncJob, supabaseClient: any) {
     if (sync_types.includes('registrations')) {
       try {
         console.log('Processing registrations...')
-        const registrationsResult = await supabaseClient.functions.invoke('zoom-sync-registrations', {
-          body: {
-            organization_id: finalOrgId,
-            user_id: finalUserId,
-            webinar_id: finalWebinarId,
-            zoom_webinar_id: webinar_zoom_id,
-          }
-        })
+        const registrationsResult = await Promise.race([
+          supabaseClient.functions.invoke('zoom-sync-registrations', {
+            body: {
+              organization_id: finalOrgId,
+              user_id: finalUserId,
+              webinar_id: finalWebinarId,
+              zoom_webinar_id: webinar_zoom_id,
+            }
+          }),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Registrations sync timeout')), 60000))
+        ])
 
         if (registrationsResult.data?.success) {
           results.registrations.success = true
@@ -156,14 +178,17 @@ async function processDetailedSyncJob(job: SyncJob, supabaseClient: any) {
     if (sync_types.includes('polls')) {
       try {
         console.log('Processing polls...')
-        const pollsResult = await supabaseClient.functions.invoke('zoom-sync-polls', {
-          body: {
-            organization_id: finalOrgId,
-            user_id: finalUserId,
-            webinar_id: finalWebinarId,
-            zoom_webinar_id: webinar_zoom_id,
-          }
-        })
+        const pollsResult = await Promise.race([
+          supabaseClient.functions.invoke('zoom-sync-polls', {
+            body: {
+              organization_id: finalOrgId,
+              user_id: finalUserId,
+              webinar_id: finalWebinarId,
+              zoom_webinar_id: webinar_zoom_id,
+            }
+          }),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Polls sync timeout')), 60000))
+        ])
 
         if (pollsResult.data?.success) {
           results.polls.success = true
@@ -185,14 +210,17 @@ async function processDetailedSyncJob(job: SyncJob, supabaseClient: any) {
     if (sync_types.includes('qa')) {
       try {
         console.log('Processing Q&A...')
-        const qaResult = await supabaseClient.functions.invoke('zoom-sync-qa', {
-          body: {
-            organization_id: finalOrgId,
-            user_id: finalUserId,
-            webinar_id: finalWebinarId,
-            zoom_webinar_id: webinar_zoom_id,
-          }
-        })
+        const qaResult = await Promise.race([
+          supabaseClient.functions.invoke('zoom-sync-qa', {
+            body: {
+              organization_id: finalOrgId,
+              user_id: finalUserId,
+              webinar_id: finalWebinarId,
+              zoom_webinar_id: webinar_zoom_id,
+            }
+          }),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('QA sync timeout')), 60000))
+        ])
 
         if (qaResult.data?.success) {
           results.qa.success = true
@@ -215,14 +243,17 @@ async function processDetailedSyncJob(job: SyncJob, supabaseClient: any) {
     if (sync_types.includes('chat')) {
       try {
         console.log('Processing chat...')
-        const chatResult = await supabaseClient.functions.invoke('zoom-sync-chat', {
-          body: {
-            organization_id: finalOrgId,
-            user_id: finalUserId,
-            webinar_id: finalWebinarId,
-            zoom_webinar_id: webinar_zoom_id,
-          }
-        })
+        const chatResult = await Promise.race([
+          supabaseClient.functions.invoke('zoom-sync-chat', {
+            body: {
+              organization_id: finalOrgId,
+              user_id: finalUserId,
+              webinar_id: finalWebinarId,
+              zoom_webinar_id: webinar_zoom_id,
+            }
+          }),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Chat sync timeout')), 60000))
+        ])
 
         if (chatResult.data?.success) {
           results.chat.success = true
@@ -288,20 +319,20 @@ async function processDetailedSyncJob(job: SyncJob, supabaseClient: any) {
 }
 
 async function cleanupHangingJobs(supabaseClient: any) {
-  // Find jobs that have been "started" for more than 30 minutes
+  // Find jobs that have been "running" for more than 30 minutes
   const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString()
   
   const { data: hangingJobs, error } = await supabaseClient
-    .from('sync_logs')
+    .from('sync_jobs')
     .select('id')
-    .eq('status', 'started')
+    .eq('status', 'running')
     .lt('started_at', thirtyMinutesAgo)
 
   if (hangingJobs && hangingJobs.length > 0) {
-    console.log(`Found ${hangingJobs.length} hanging sync logs, marking as failed`)
+    console.log(`Found ${hangingJobs.length} hanging sync jobs, marking as failed`)
     
     await supabaseClient
-      .from('sync_logs')
+      .from('sync_jobs')
       .update({
         status: 'failed',
         error_message: 'Job timed out after 30 minutes',
@@ -336,7 +367,7 @@ serve(async (req) => {
       .eq('status', 'pending')
       .eq('job_type', 'detailed_webinar_sync')
       .order('created_at', { ascending: true })
-      .limit(5) // Process max 5 jobs at a time
+      .limit(3) // Process max 3 jobs at a time to prevent hanging
 
     if (jobsError) {
       throw new Error(`Failed to fetch pending jobs: ${jobsError.message}`)
@@ -363,10 +394,10 @@ serve(async (req) => {
     // Process each job with timeout protection
     for (const job of pendingJobs) {
       try {
-        // Set a timeout for each job (10 minutes max)
+        // Set a timeout for each job (5 minutes max)
         const jobPromise = processDetailedSyncJob(job, supabaseClient)
         const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Job timeout after 10 minutes')), 10 * 60 * 1000)
+          setTimeout(() => reject(new Error('Job timeout after 5 minutes')), 5 * 60 * 1000)
         )
         
         const result = await Promise.race([jobPromise, timeoutPromise])

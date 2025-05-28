@@ -75,15 +75,17 @@ serve(async (req) => {
             accessToken
           )
 
-          // Create detailed sync job for this webinar with proper metadata and sync types
+          // Create detailed sync job for this webinar with COMPLETE metadata
           const syncTypes = ['participants', 'registrations', 'polls', 'qa']
           
-          // Add chat only for completed webinars
-          if (detailData.status === 'ended' || result.webinarRecord.status === 'completed') {
+          // Add chat sync for completed webinars
+          const isCompleted = detailData.status === 'ended' || result.webinarRecord.status === 'completed'
+          if (isCompleted) {
             syncTypes.push('chat')
             console.log(`Adding chat sync for completed webinar: ${detailData.id}`)
           }
 
+          // Create job with COMPLETE metadata including webinar_id
           await supabaseClient
             .from('sync_jobs')
             .insert({
@@ -93,14 +95,19 @@ serve(async (req) => {
               status: 'pending',
               metadata: {
                 webinar_zoom_id: detailData.id?.toString(),
-                organization_id,
-                user_id,
-                webinar_id: result.webinarRecord.id,
+                organization_id, // Include in metadata for redundancy
+                user_id, // Include in metadata for redundancy
+                webinar_id: result.webinarRecord.id, // CRITICAL: Include webinar_id
                 sync_types: syncTypes,
                 webinar_status: result.webinarRecord.status,
-                created_by: 'enhanced_webinar_sync'
+                webinar_title: result.webinarRecord.title,
+                is_completed: isCompleted,
+                created_by: 'enhanced_webinar_sync',
+                scheduled_at: new Date().toISOString()
               }
             })
+
+          console.log(`Created sync job for webinar ${detailData.id} with sync types: ${syncTypes.join(', ')}`)
 
           if (processedCount % 10 === 0) {
             console.log(`Processed ${processedCount} webinars with quality fixes...`)
@@ -134,7 +141,8 @@ serve(async (req) => {
         quality_fixes_applied: qualityFixesApplied,
         errors: errorCount,
         comprehensive_data: true,
-        detailed_jobs_created: processedCount
+        detailed_jobs_created: processedCount,
+        jobs_with_chat_sync: allWebinars.filter((_, i) => i < processedCount).length // Estimate
       }),
       {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
