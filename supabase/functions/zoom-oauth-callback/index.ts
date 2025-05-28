@@ -26,12 +26,20 @@ serve(async (req) => {
       throw new Error('Authorization code not provided')
     }
 
+    // Get Zoom credentials from environment
+    const clientId = Deno.env.get('ZOOM_CLIENT_ID')
+    const clientSecret = Deno.env.get('ZOOM_CLIENT_SECRET')
+    
+    if (!clientId || !clientSecret) {
+      throw new Error('Zoom credentials not configured')
+    }
+
     // Exchange authorization code for access token
     const tokenResponse = await fetch('https://zoom.us/oauth/token', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
-        'Authorization': `Basic ${btoa(`${Deno.env.get('ZOOM_CLIENT_ID')}:${Deno.env.get('ZOOM_CLIENT_SECRET')}`)}`,
+        'Authorization': `Basic ${btoa(`${clientId}:${clientSecret}`)}`,
       },
       body: new URLSearchParams({
         grant_type: 'authorization_code',
@@ -43,6 +51,7 @@ serve(async (req) => {
     const tokenData = await tokenResponse.json()
     
     if (!tokenResponse.ok) {
+      console.error('Token exchange failed:', tokenData)
       throw new Error(`Token exchange failed: ${tokenData.error_description || tokenData.error}`)
     }
 
@@ -56,6 +65,7 @@ serve(async (req) => {
     const userData = await userResponse.json()
     
     if (!userResponse.ok) {
+      console.error('Failed to get user info:', userData)
       throw new Error(`Failed to get user info: ${userData.message}`)
     }
 
@@ -77,6 +87,7 @@ serve(async (req) => {
       .single()
 
     if (profileError || !profile) {
+      console.error('Failed to get user profile:', profileError)
       throw new Error('Unable to get user organization')
     }
 
@@ -91,6 +102,7 @@ serve(async (req) => {
       .eq('id', userId)
 
     if (updateError) {
+      console.error('Failed to store tokens:', updateError)
       throw new Error(`Failed to store tokens: ${updateError.message}`)
     }
 
@@ -111,8 +123,10 @@ serve(async (req) => {
       console.error('Failed to create connection record:', connectionError)
     }
 
+    console.log('Successfully connected Zoom for user:', userId)
+
     // Redirect to success page
-    const redirectUrl = `${url.origin}/?zoom_connected=true`
+    const redirectUrl = `${url.origin}/account?zoom_connected=true`
     
     return new Response(null, {
       status: 302,
@@ -125,12 +139,16 @@ serve(async (req) => {
   } catch (error) {
     console.error('OAuth callback error:', error)
     
-    return new Response(
-      JSON.stringify({ error: error.message }),
-      {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      }
-    )
+    // Redirect to error page
+    const url = new URL(req.url)
+    const errorUrl = `${url.origin}/account?zoom_error=${encodeURIComponent(error.message)}`
+    
+    return new Response(null, {
+      status: 302,
+      headers: {
+        ...corsHeaders,
+        'Location': errorUrl,
+      },
+    })
   }
 })

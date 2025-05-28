@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -28,6 +27,7 @@ import { useZoomIntegration } from '@/hooks/useZoomIntegration';
 const credentialsSchema = z.object({
   clientId: z.string().min(1, 'Client ID is required'),
   clientSecret: z.string().min(1, 'Client Secret is required'),
+  accountId: z.string().min(1, 'Account ID is required'),
 });
 
 type CredentialsForm = z.infer<typeof credentialsSchema>;
@@ -50,6 +50,7 @@ const ZoomConnectionWizard = ({ isOpen, onClose, onSuccess }: ZoomConnectionWiza
     defaultValues: {
       clientId: '',
       clientSecret: '',
+      accountId: '',
     },
   });
 
@@ -79,17 +80,31 @@ const ZoomConnectionWizard = ({ isOpen, onClose, onSuccess }: ZoomConnectionWiza
     setCurrentStep('connecting');
     
     try {
-      // In a real implementation, you would store these credentials securely
-      // and validate them with Zoom's API before proceeding to OAuth
-      console.log('Storing credentials:', { clientId: data.clientId });
-      
-      // Simulate API validation
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // Store credentials in Supabase secrets and initiate OAuth
+      const response = await fetch('/api/zoom/store-credentials', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to store credentials');
+      }
+
+      // Wait a moment for credentials to be stored
+      await new Promise(resolve => setTimeout(resolve, 1000));
       
       // Start OAuth flow
       await initializeZoomOAuth();
       
       setCurrentStep('success');
+      
+      toast({
+        title: "Connection Successful",
+        description: "Your Zoom account has been connected successfully.",
+      });
       
       // Auto-redirect after 3 seconds
       setTimeout(() => {
@@ -98,6 +113,7 @@ const ZoomConnectionWizard = ({ isOpen, onClose, onSuccess }: ZoomConnectionWiza
       }, 3000);
       
     } catch (error) {
+      console.error('Connection error:', error);
       toast({
         title: "Connection Failed",
         description: "Failed to connect to Zoom. Please check your credentials and try again.",
@@ -143,7 +159,7 @@ const ZoomConnectionWizard = ({ isOpen, onClose, onSuccess }: ZoomConnectionWiza
             </div>
             <div className="bg-yellow-50 p-3 rounded-lg text-left">
               <p className="text-sm text-yellow-800">
-                <strong>Required:</strong> You'll need your Zoom API credentials (Client ID and Secret) 
+                <strong>Required:</strong> You'll need your Zoom API credentials (Client ID, Client Secret, and Account ID) 
                 from your Zoom Marketplace app.
               </p>
             </div>
@@ -193,6 +209,20 @@ const ZoomConnectionWizard = ({ isOpen, onClose, onSuccess }: ZoomConnectionWiza
                     </FormItem>
                   )}
                 />
+
+                <FormField
+                  control={form.control}
+                  name="accountId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Account ID</FormLabel>
+                      <FormControl>
+                        <Input placeholder="Enter your Zoom Account ID" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
               </form>
             </Form>
             
@@ -201,8 +231,8 @@ const ZoomConnectionWizard = ({ isOpen, onClose, onSuccess }: ZoomConnectionWiza
                 <ExternalLink className="w-4 h-4 text-blue-600 mt-0.5" />
                 <div>
                   <p className="text-sm text-blue-800">
-                    <strong>Need API credentials?</strong> Create a Zoom Marketplace app to get your 
-                    Client ID and Secret.
+                    <strong>Need API credentials?</strong> Create a Server-to-Server OAuth app in the Zoom Marketplace 
+                    to get your Client ID, Secret, and Account ID.
                   </p>
                   <a 
                     href="https://marketplace.zoom.us/develop/create" 

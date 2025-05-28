@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
@@ -84,25 +83,24 @@ export const useZoomIntegration = () => {
         return;
       }
 
-      // Encode user ID in state parameter for user-level OAuth
-      const state = btoa(user.id);
-      const clientId = 'YOUR_ZOOM_CLIENT_ID'; // This should come from environment
-      const redirectUri = `${window.location.origin}/functions/v1/zoom-oauth-callback`;
-      
-      const scope = 'webinar:read:admin meeting:read:admin user:read:admin';
-      
-      const authUrl = `https://zoom.us/oauth/authorize?` + 
-        `response_type=code&` +
-        `client_id=${clientId}&` +
-        `redirect_uri=${encodeURIComponent(redirectUri)}&` +
-        `scope=${encodeURIComponent(scope)}&` +
-        `state=${state}`;
+      // Call the edge function to initiate OAuth
+      const { data, error } = await supabase.functions.invoke('zoom-oauth-initiate', {
+        body: { user_id: user.id }
+      });
 
-      window.location.href = authUrl;
+      if (error) {
+        throw new Error(error.message);
+      }
+
+      if (data?.auth_url) {
+        window.location.href = data.auth_url;
+      } else {
+        throw new Error('Failed to get authorization URL');
+      }
     } catch (error: any) {
       toast({
         title: "Error",
-        description: "Failed to initialize Zoom OAuth",
+        description: error.message || "Failed to initialize Zoom OAuth",
         variant: "destructive",
       });
       console.error('OAuth initialization error:', error);
