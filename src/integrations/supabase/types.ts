@@ -897,6 +897,7 @@ export type Database = {
           creation_source: string | null
           duration_minutes: number | null
           encrypted_passcode: string | null
+          encrypted_password: string | null
           end_time: string | null
           h323_passcode: string | null
           has_recording: boolean | null
@@ -934,6 +935,7 @@ export type Database = {
           creation_source?: string | null
           duration_minutes?: number | null
           encrypted_passcode?: string | null
+          encrypted_password?: string | null
           end_time?: string | null
           h323_passcode?: string | null
           has_recording?: boolean | null
@@ -971,6 +973,7 @@ export type Database = {
           creation_source?: string | null
           duration_minutes?: number | null
           encrypted_passcode?: string | null
+          encrypted_password?: string | null
           end_time?: string | null
           h323_passcode?: string | null
           has_recording?: boolean | null
