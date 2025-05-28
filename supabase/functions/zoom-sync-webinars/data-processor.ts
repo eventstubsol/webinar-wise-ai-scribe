@@ -1,17 +1,140 @@
 import { processPanelistData } from './panelist-processor.ts'
 
-export async function processWebinarComprehensiveData(webinarData: any, webinar_id: string, organization_id: string, supabaseClient: any, accessToken?: string) {
-  console.log(`Processing comprehensive data for webinar: ${webinarData.topic}`)
+export async function processWebinarComprehensiveData(
+  webinarData: any,
+  webinarId: string,
+  organizationId: string,
+  supabaseClient: any,
+  accessToken: string
+) {
+  console.log(`Processing comprehensive data for webinar: ${webinarData.id}`)
   
   try {
+    // Get actual host information from Zoom users API
+    let actualHostName = webinarData.host_email
+    if (webinarData.host_id) {
+      try {
+        const hostResponse = await fetch(`https://api.zoom.us/v2/users/${webinarData.host_id}`, {
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+        })
+        
+        if (hostResponse.ok) {
+          const hostData = await hostResponse.json()
+          actualHostName = `${hostData.first_name || ''} ${hostData.last_name || ''}`.trim() || hostData.display_name || webinarData.host_email
+        }
+      } catch (error) {
+        console.warn(`Failed to fetch host details for ${webinarData.host_id}:`, error.message)
+      }
+    }
+
+    // Map webinar type to meaningful values
+    const getWebinarTypeString = (type: number | string) => {
+      const typeNum = typeof type === 'string' ? parseInt(type) : type
+      switch (typeNum) {
+        case 5: return 'webinar'
+        case 6: return 'recurring_webinar_no_fixed_time'
+        case 9: return 'recurring_webinar_fixed_time'
+        default: return 'webinar'
+      }
+    }
+
+    // Check for recordings
+    let hasRecording = false
+    let recordingCount = 0
+    let recordFileId = null
+    
+    try {
+      const recordingsResponse = await fetch(`https://api.zoom.us/v2/meetings/${webinarData.id}/recordings`, {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+      })
+
+      if (recordingsResponse.ok) {
+        const recordingsData = await recordingsResponse.json()
+        if (recordingsData.recording_files && recordingsData.recording_files.length > 0) {
+          hasRecording = true
+          recordingCount = recordingsData.recording_files.length
+          recordFileId = recordingsData.recording_files[0].id
+          
+          // Store recording data
+          for (const recording of recordingsData.recording_files) {
+            await supabaseClient
+              .from('zoom_recordings')
+              .upsert({
+                webinar_id: webinarId,
+                organization_id: organizationId,
+                zoom_recording_id: recording.id,
+                recording_type: recording.recording_type,
+                file_type: recording.file_type,
+                file_size: recording.file_size,
+                play_url: recording.play_url,
+                download_url: recording.download_url,
+                recording_start: recording.recording_start,
+                recording_end: recording.recording_end,
+                status: recording.status || 'completed',
+                password: recordingsData.password,
+                updated_at: new Date().toISOString(),
+              }, {
+                onConflict: 'webinar_id,zoom_recording_id',
+              })
+          }
+        }
+      }
+    } catch (error) {
+      console.warn(`Failed to fetch recordings for webinar ${webinarData.id}:`, error.message)
+    }
+
+    // Get actual registrant count
+    let actualRegistrantsCount = webinarData.registrants_count || 0
+    try {
+      const registrantsResponse = await fetch(`https://api.zoom.us/v2/webinars/${webinarData.id}/registrants?page_size=300`, {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+      })
+
+      if (registrantsResponse.ok) {
+        const registrantsData = await registrantsResponse.json()
+        actualRegistrantsCount = registrantsData.total_records || registrantsData.registrants?.length || 0
+      }
+    } catch (error) {
+      console.warn(`Failed to fetch registrants count for webinar ${webinarData.id}:`, error.message)
+    }
+
+    // Update webinar with corrected data
+    const { error: updateError } = await supabaseClient
+      .from('webinars')
+      .update({
+        host_name: actualHostName,
+        webinar_type: getWebinarTypeString(webinarData.type),
+        has_recording: hasRecording,
+        recording_count: recordingCount,
+        record_file_id: recordFileId,
+        registrants_count: actualRegistrantsCount,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', webinarId)
+
+    if (updateError) {
+      console.error('Error updating webinar with corrected data:', updateError)
+    } else {
+      console.log(`✓ Updated webinar ${webinarData.id} with corrected data`)
+    }
+
     // Process recurrence data with better error handling
     if (webinarData.recurrence) {
       try {
         await supabaseClient
           .from('webinar_recurrence')
           .upsert({
-            webinar_id,
-            organization_id,
+            webinar_id: webinarId,
+            organization_id: organizationId,
             recurrence_type: webinarData.recurrence.type || 1,
             repeat_interval: webinarData.recurrence.repeat_interval || 1,
             weekly_days: webinarData.recurrence.weekly_days,
@@ -37,8 +160,8 @@ export async function processWebinarComprehensiveData(webinarData: any, webinar_
         await supabaseClient
           .from('webinar_settings')
           .upsert({
-            webinar_id,
-            organization_id,
+            webinar_id: webinarId,
+            organization_id: organizationId,
             approval_type: settings.approval_type || 2,
             registration_type: settings.registration_type || 1,
             audio: settings.audio || 'both',
@@ -85,8 +208,8 @@ export async function processWebinarComprehensiveData(webinarData: any, webinar_
         await supabaseClient
           .from('webinar_authentication')
           .upsert({
-            webinar_id,
-            organization_id,
+            webinar_id: webinarId,
+            organization_id: organizationId,
             meeting_authentication: settings.meeting_authentication || false,
             panelist_authentication: settings.panelist_authentication || false,
             authentication_option: settings.authentication_option,
@@ -108,8 +231,8 @@ export async function processWebinarComprehensiveData(webinarData: any, webinar_
         await supabaseClient
           .from('webinar_notifications')
           .upsert({
-            webinar_id,
-            organization_id,
+            webinar_id: webinarId,
+            organization_id: organizationId,
             attendees_reminder_enable: attendeesReminder.enable || false,
             attendees_reminder_type: attendeesReminder.type || 0,
             follow_up_attendees_enable: followUpAttendees.enable || false,
@@ -128,8 +251,8 @@ export async function processWebinarComprehensiveData(webinarData: any, webinar_
           await supabaseClient
             .from('webinar_qa_settings')
             .upsert({
-              webinar_id,
-              organization_id,
+              webinar_id: webinarId,
+              organization_id: organizationId,
               enable: qa.enable || false,
               allow_submit_questions: qa.allow_submit_questions !== undefined ? qa.allow_submit_questions : true,
               allow_anonymous_questions: qa.allow_anonymous_questions !== undefined ? qa.allow_anonymous_questions : true,
@@ -151,7 +274,7 @@ export async function processWebinarComprehensiveData(webinarData: any, webinar_
           await supabaseClient
             .from('webinar_interpreters')
             .delete()
-            .eq('webinar_id', webinar_id)
+            .eq('webinar_id', webinarId)
             .eq('interpreter_type', 'language')
 
           // Insert new interpreters
@@ -159,8 +282,8 @@ export async function processWebinarComprehensiveData(webinarData: any, webinar_
             await supabaseClient
               .from('webinar_interpreters')
               .insert({
-                webinar_id,
-                organization_id,
+                webinar_id: webinarId,
+                organization_id: organizationId,
                 interpreter_type: 'language',
                 email: interpreter.email,
                 languages: interpreter.interpreter_languages || interpreter.languages
@@ -175,7 +298,7 @@ export async function processWebinarComprehensiveData(webinarData: any, webinar_
           await supabaseClient
             .from('webinar_interpreters')
             .delete()
-            .eq('webinar_id', webinar_id)
+            .eq('webinar_id', webinarId)
             .eq('interpreter_type', 'sign_language')
 
           // Insert new interpreters
@@ -183,8 +306,8 @@ export async function processWebinarComprehensiveData(webinarData: any, webinar_
             await supabaseClient
               .from('webinar_interpreters')
               .insert({
-                webinar_id,
-                organization_id,
+                webinar_id: webinarId,
+                organization_id: organizationId,
                 interpreter_type: 'sign_language',
                 email: interpreter.email,
                 sign_language: interpreter.sign_language
@@ -204,15 +327,15 @@ export async function processWebinarComprehensiveData(webinarData: any, webinar_
         await supabaseClient
           .from('webinar_tracking_fields')
           .delete()
-          .eq('webinar_id', webinar_id)
+          .eq('webinar_id', webinarId)
 
         // Insert new tracking fields with visibility
         for (const field of webinarData.tracking_fields) {
           await supabaseClient
             .from('webinar_tracking_fields')
             .insert({
-              webinar_id,
-              organization_id,
+              webinar_id: webinarId,
+              organization_id: organizationId,
               field_name: field.field,
               field_value: field.value,
               visible: field.visible !== undefined ? field.visible : true
@@ -231,15 +354,15 @@ export async function processWebinarComprehensiveData(webinarData: any, webinar_
         await supabaseClient
           .from('webinar_occurrences')
           .delete()
-          .eq('webinar_id', webinar_id)
+          .eq('webinar_id', webinarId)
 
         // Insert new occurrences
         for (const occurrence of webinarData.occurrences) {
           await supabaseClient
             .from('webinar_occurrences')
             .insert({
-              webinar_id,
-              organization_id,
+              webinar_id: webinarId,
+              organization_id: organizationId,
               occurrence_id: occurrence.occurrence_id,
               start_time: occurrence.start_time,
               duration: occurrence.duration,
@@ -254,13 +377,13 @@ export async function processWebinarComprehensiveData(webinarData: any, webinar_
 
     // Process panelist data if access token is provided
     if (accessToken) {
-      await processPanelistData(webinarData, webinar_id, organization_id, supabaseClient, accessToken)
+      await processPanelistData(webinarData, webinarId, organizationId, supabaseClient, accessToken)
     }
 
     console.log(`  - Comprehensive data processed successfully`)
     
   } catch (error) {
-    console.error(`Error processing comprehensive data:`, error)
+    console.error(`Error processing comprehensive data for webinar ${webinarData.id}:`, error)
     // Don't throw here - we want to continue processing other webinars
   }
 }

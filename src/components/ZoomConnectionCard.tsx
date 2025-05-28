@@ -1,4 +1,3 @@
-
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -7,6 +6,7 @@ import { useZoomIntegration } from "@/hooks/useZoomIntegration";
 import ZoomConnectionWizard from "./ZoomConnectionWizard";
 import SyncProgressIndicator from "./SyncProgressIndicator";
 import { useState } from "react";
+import { useJobProcessor } from "@/hooks/useJobProcessor";
 
 interface ZoomConnectionCardProps {
   zoomConnection: any;
@@ -23,6 +23,8 @@ const ZoomConnectionCard = ({ zoomConnection, isConnected }: ZoomConnectionCardP
     chunkedSyncStats,
     currentChunk
   } = useZoomIntegration();
+  
+  const { processing, processJobs } = useJobProcessor();
   const [isWizardOpen, setIsWizardOpen] = useState(false);
 
   const handleWizardSuccess = () => {
@@ -74,12 +76,23 @@ const ZoomConnectionCard = ({ zoomConnection, isConnected }: ZoomConnectionCardP
               <div className="flex space-x-2">
                 <Button 
                   onClick={syncWebinarData} 
-                  disabled={syncing}
+                  disabled={syncing || processing}
                   size="sm"
                   className="flex items-center space-x-2"
                 >
                   <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
                   <span>{syncing ? 'Syncing...' : 'Sync Data'}</span>
+                </Button>
+                
+                <Button 
+                  onClick={processJobs} 
+                  disabled={syncing || processing}
+                  size="sm"
+                  variant="outline"
+                  className="flex items-center space-x-2"
+                >
+                  <Settings className={`w-4 h-4 ${processing ? 'animate-spin' : ''}`} />
+                  <span>{processing ? 'Processing...' : 'Process Jobs'}</span>
                 </Button>
                 
                 <Button 
@@ -117,7 +130,7 @@ const ZoomConnectionCard = ({ zoomConnection, isConnected }: ZoomConnectionCardP
           <div className="pt-2 border-t">
             <div className="flex items-center space-x-2 text-xs text-gray-500">
               <AlertTriangle className="w-3 h-3" />
-              <span>Enhanced sync with chunked processing for improved reliability</span>
+              <span>Enhanced sync with job processing for reliable detailed data sync</span>
             </div>
           </div>
         </CardContent>
