@@ -1,12 +1,24 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Users, UserCheck, TrendingUp, MessageSquare } from "lucide-react";
+import { useWebinarData } from "@/hooks/useWebinarData";
 
 const KPICards = () => {
+  const { webinars, attendees } = useWebinarData();
+  
+  // Calculate KPIs from real data
+  const latestWebinar = webinars[0];
+  const totalRegistrants = latestWebinar?.registrants_count || 0;
+  const totalAttendees = latestWebinar?.attendees_count || attendees.length || 0;
+  const attendanceRate = totalRegistrants > 0 ? ((totalAttendees / totalRegistrants) * 100).toFixed(1) : "0.0";
+  const avgEngagement = attendees.length > 0 
+    ? (attendees.reduce((sum, a) => sum + (a.engagement_score || 0), 0) / attendees.length).toFixed(1)
+    : "0.0";
+
   const kpis = [
     {
       title: "Total Registrants",
-      value: "1,247",
+      value: totalRegistrants.toLocaleString(),
       change: "+12.5%",
       changeType: "positive",
       icon: Users,
@@ -14,7 +26,7 @@ const KPICards = () => {
     },
     {
       title: "Attendees",
-      value: "892",
+      value: totalAttendees.toLocaleString(),
       change: "+8.3%",
       changeType: "positive", 
       icon: UserCheck,
@@ -22,15 +34,15 @@ const KPICards = () => {
     },
     {
       title: "Attendance Rate",
-      value: "71.5%",
+      value: `${attendanceRate}%`,
       change: "-2.1%",
-      changeType: "negative",
+      changeType: attendanceRate > "70" ? "positive" : "negative",
       icon: TrendingUp,
       color: "from-purple-500 to-purple-600"
     },
     {
-      title: "Engagement Score",
-      value: "8.4/10",
+      title: "Avg Engagement",
+      value: `${avgEngagement}/10`,
       change: "+15.2%",
       changeType: "positive",
       icon: MessageSquare,

@@ -9,16 +9,252 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
-      [_ in never]: never
+      attendees: {
+        Row: {
+          created_at: string
+          duration_minutes: number | null
+          email: string
+          engagement_score: number | null
+          id: string
+          join_time: string | null
+          leave_time: string | null
+          name: string
+          organization_id: string
+          updated_at: string
+          webinar_id: string
+          zoom_user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          duration_minutes?: number | null
+          email: string
+          engagement_score?: number | null
+          id?: string
+          join_time?: string | null
+          leave_time?: string | null
+          name: string
+          organization_id: string
+          updated_at?: string
+          webinar_id: string
+          zoom_user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          duration_minutes?: number | null
+          email?: string
+          engagement_score?: number | null
+          id?: string
+          join_time?: string | null
+          leave_time?: string | null
+          name?: string
+          organization_id?: string
+          updated_at?: string
+          webinar_id?: string
+          zoom_user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "attendees_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendees_webinar_id_fkey"
+            columns: ["webinar_id"]
+            isOneToOne: false
+            referencedRelation: "webinars"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      engagement_events: {
+        Row: {
+          attendee_id: string
+          event_data: Json | null
+          event_type: string
+          id: string
+          organization_id: string
+          timestamp: string
+          webinar_id: string
+        }
+        Insert: {
+          attendee_id: string
+          event_data?: Json | null
+          event_type: string
+          id?: string
+          organization_id: string
+          timestamp?: string
+          webinar_id: string
+        }
+        Update: {
+          attendee_id?: string
+          event_data?: Json | null
+          event_type?: string
+          id?: string
+          organization_id?: string
+          timestamp?: string
+          webinar_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "engagement_events_attendee_id_fkey"
+            columns: ["attendee_id"]
+            isOneToOne: false
+            referencedRelation: "attendees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "engagement_events_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "engagement_events_webinar_id_fkey"
+            columns: ["webinar_id"]
+            isOneToOne: false
+            referencedRelation: "webinars"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      organizations: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+          slug: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+          slug: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+          slug?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          created_at: string
+          email: string
+          first_name: string | null
+          id: string
+          last_name: string | null
+          organization_id: string
+          role: Database["public"]["Enums"]["user_role"]
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          email: string
+          first_name?: string | null
+          id: string
+          last_name?: string | null
+          organization_id: string
+          role?: Database["public"]["Enums"]["user_role"]
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          first_name?: string | null
+          id?: string
+          last_name?: string | null
+          organization_id?: string
+          role?: Database["public"]["Enums"]["user_role"]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "profiles_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      webinars: {
+        Row: {
+          attendees_count: number | null
+          created_at: string
+          duration_minutes: number | null
+          end_time: string | null
+          host_name: string | null
+          id: string
+          organization_id: string
+          registrants_count: number | null
+          start_time: string | null
+          title: string
+          updated_at: string
+          zoom_webinar_id: string | null
+        }
+        Insert: {
+          attendees_count?: number | null
+          created_at?: string
+          duration_minutes?: number | null
+          end_time?: string | null
+          host_name?: string | null
+          id?: string
+          organization_id: string
+          registrants_count?: number | null
+          start_time?: string | null
+          title: string
+          updated_at?: string
+          zoom_webinar_id?: string | null
+        }
+        Update: {
+          attendees_count?: number | null
+          created_at?: string
+          duration_minutes?: number | null
+          end_time?: string | null
+          host_name?: string | null
+          id?: string
+          organization_id?: string
+          registrants_count?: number | null
+          start_time?: string | null
+          title?: string
+          updated_at?: string
+          zoom_webinar_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "webinars_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      get_user_organization_id: {
+        Args: Record<PropertyKey, never>
+        Returns: string
+      }
+      has_role: {
+        Args: { _role: Database["public"]["Enums"]["user_role"] }
+        Returns: boolean
+      }
     }
     Enums: {
-      [_ in never]: never
+      user_role: "admin" | "analyst" | "host" | "viewer"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -133,6 +369,8 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      user_role: ["admin", "analyst", "host", "viewer"],
+    },
   },
 } as const
