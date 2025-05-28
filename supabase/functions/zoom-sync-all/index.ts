@@ -76,6 +76,8 @@ async function delay(ms: number): Promise<void> {
 }
 
 serve(async (req) => {
+  console.log('zoom-sync-all function called with method:', req.method)
+  
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
   }
@@ -95,7 +97,7 @@ serve(async (req) => {
     console.log('Starting comprehensive sync for user:', user_id, 'org:', organization_id)
 
     // Create master sync job
-    const { data: syncJob } = await supabaseClient
+    const { data: syncJob, error: syncJobError } = await supabaseClient
       .from('sync_jobs')
       .insert({
         organization_id,
@@ -106,6 +108,11 @@ serve(async (req) => {
       })
       .select()
       .single()
+
+    if (syncJobError) {
+      console.error('Error creating sync job:', syncJobError)
+      throw new Error('Failed to create sync job')
+    }
 
     console.log('Created master sync job:', syncJob?.id)
 
@@ -129,7 +136,7 @@ serve(async (req) => {
       console.log(`Fetching webinars page ${pageCount}...`)
       
       const params = new URLSearchParams({
-        page_size: '30', // Smaller page size for rate limiting
+        page_size: '30',
         type: 'past',
       })
       
@@ -158,8 +165,8 @@ serve(async (req) => {
       console.log(`Page ${pageCount}: Found ${webinars.length} webinars`)
       
       // Rate limiting delay between pages
-      if (nextPageToken && pageCount < 10) { // Safety limit
-        await delay(1000) // 1 second delay
+      if (nextPageToken && pageCount < 10) {
+        await delay(1000)
       }
       
     } while (nextPageToken && pageCount < 10)
@@ -201,12 +208,11 @@ serve(async (req) => {
           console.error(`Error processing webinar ${webinar.topic}:`, error)
         }
 
-        // Small delay between webinars
         await delay(200)
       }
 
       // Update progress
-      const progress = 20 + Math.round((i + batch.length) / allWebinars.length * 50) // 20-70%
+      const progress = 20 + Math.round((i + batch.length) / allWebinars.length * 50)
       await supabaseClient
         .from('sync_jobs')
         .update({ 
@@ -216,14 +222,13 @@ serve(async (req) => {
         })
         .eq('id', syncJob?.id)
 
-      // Delay between batches
       if (i + batchSize < allWebinars.length) {
-        await delay(2000) // 2 second delay between batches
+        await delay(2000)
       }
     }
 
-    // Step 2: Sync detailed data for recent webinars (limit to 5 to avoid timeout)
-    const recentWebinars = allWebinars.slice(0, 5)
+    // Step 2: Sync detailed data for recent webinars (limit to 3 to avoid timeout)
+    const recentWebinars = allWebinars.slice(0, 3)
     console.log(`Step 2: Syncing detailed data for ${recentWebinars.length} recent webinars...`)
 
     let totalParticipants = 0
@@ -246,23 +251,7 @@ serve(async (req) => {
 
         const webinar_id = webinarRecord.id
 
-        // Only sync participants and registrations to avoid scope issues
-        console.log('  - Syncing participants...')
-        const participantsResult = await supabaseClient.functions.invoke('zoom-sync-participants', {
-          body: {
-            organization_id,
-            user_id,
-            webinar_id,
-            zoom_webinar_id: webinar.id,
-          }
-        })
-
-        if (participantsResult.data?.participants_synced) {
-          totalParticipants += participantsResult.data.participants_synced
-        }
-
-        await delay(2000) // 2 second delay
-
+        // Sync registrations
         console.log('  - Syncing registrations...')
         const registrationsResult = await supabaseClient.functions.invoke('zoom-sync-registrations', {
           body: {
@@ -277,10 +266,10 @@ serve(async (req) => {
           totalRegistrations += registrationsResult.data.registrations_synced
         }
 
-        await delay(2000) // 2 second delay
+        await delay(2000)
 
         // Update progress
-        const progress = 70 + Math.round((i + 1) / recentWebinars.length * 25) // 70-95%
+        const progress = 70 + Math.round((i + 1) / recentWebinars.length * 25)
         await supabaseClient
           .from('sync_jobs')
           .update({ progress })
