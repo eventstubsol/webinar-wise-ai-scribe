@@ -97,77 +97,77 @@ export const useComprehensiveWebinarData = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    const fetchComprehensiveData = async () => {
-      if (!user) return;
+  const fetchComprehensiveData = async () => {
+    if (!user) return;
 
-      try {
-        setLoading(true);
-        setError(null);
-        
-        // Fetch webinars with all related data
-        const { data: webinarsData, error: webinarsError } = await supabase
-          .from('webinars')
-          .select(`
-            *,
-            settings:webinar_settings(*),
-            authentication:webinar_authentication(*),
-            recurrence:webinar_recurrence(*),
-            notifications:webinar_notifications(*),
-            qa_settings:webinar_qa_settings(*),
-            tracking_fields:webinar_tracking_fields(*),
-            occurrences:webinar_occurrences(*),
-            interpreters:webinar_interpreters(*)
-          `)
-          .order('created_at', { ascending: false })
-          .limit(50);
+    try {
+      setLoading(true);
+      setError(null);
+      
+      // Fetch webinars with all related data
+      const { data: webinarsData, error: webinarsError } = await supabase
+        .from('webinars')
+        .select(`
+          *,
+          settings:webinar_settings(*),
+          authentication:webinar_authentication(*),
+          recurrence:webinar_recurrence(*),
+          notifications:webinar_notifications(*),
+          qa_settings:webinar_qa_settings(*),
+          tracking_fields:webinar_tracking_fields(*),
+          occurrences:webinar_occurrences(*),
+          interpreters:webinar_interpreters(*)
+        `)
+        .order('created_at', { ascending: false })
+        .limit(50);
 
-        if (webinarsError) {
-          console.error('Error fetching comprehensive webinar data:', webinarsError);
-          throw webinarsError;
-        }
-
-        // Transform the data to match our interface
-        const transformedData: ComprehensiveWebinarData[] = (webinarsData || []).map(webinar => ({
-          id: webinar.id,
-          title: webinar.title,
-          host_name: webinar.host_name,
-          start_time: webinar.start_time,
-          end_time: webinar.end_time,
-          duration_minutes: webinar.duration_minutes,
-          attendees_count: webinar.attendees_count,
-          registrants_count: webinar.registrants_count,
-          zoom_webinar_id: webinar.zoom_webinar_id,
-          uuid: webinar.uuid,
-          join_url: webinar.join_url,
-          password: webinar.password,
-          agenda: webinar.agenda,
-          timezone: webinar.timezone,
-          is_simulive: webinar.is_simulive,
-          webinar_type: webinar.webinar_type,
-          created_at_zoom: webinar.created_at_zoom,
-          settings: Array.isArray(webinar.settings) && webinar.settings.length > 0 ? webinar.settings[0] : undefined,
-          authentication: Array.isArray(webinar.authentication) && webinar.authentication.length > 0 ? webinar.authentication[0] : undefined,
-          recurrence: Array.isArray(webinar.recurrence) && webinar.recurrence.length > 0 ? webinar.recurrence[0] : undefined,
-          notifications: Array.isArray(webinar.notifications) && webinar.notifications.length > 0 ? webinar.notifications[0] : undefined,
-          qa_settings: Array.isArray(webinar.qa_settings) && webinar.qa_settings.length > 0 ? webinar.qa_settings[0] : undefined,
-          tracking_fields: Array.isArray(webinar.tracking_fields) ? webinar.tracking_fields : [],
-          occurrences: Array.isArray(webinar.occurrences) ? webinar.occurrences : [],
-          interpreters: Array.isArray(webinar.interpreters) ? webinar.interpreters : [],
-        }));
-
-        setWebinars(transformedData);
-        console.log(`Fetched ${transformedData.length} webinars with comprehensive data`);
-        
-      } catch (err: any) {
-        const errorMessage = err.message || 'Failed to fetch comprehensive webinar data';
-        setError(errorMessage);
-        console.error('Error fetching comprehensive webinar data:', err);
-      } finally {
-        setLoading(false);
+      if (webinarsError) {
+        console.error('Error fetching comprehensive webinar data:', webinarsError);
+        throw webinarsError;
       }
-    };
 
+      // Transform the data to match our interface
+      const transformedData: ComprehensiveWebinarData[] = (webinarsData || []).map(webinar => ({
+        id: webinar.id,
+        title: webinar.title,
+        host_name: webinar.host_name,
+        start_time: webinar.start_time,
+        end_time: webinar.end_time,
+        duration_minutes: webinar.duration_minutes,
+        attendees_count: webinar.attendees_count,
+        registrants_count: webinar.registrants_count,
+        zoom_webinar_id: webinar.zoom_webinar_id,
+        uuid: webinar.uuid,
+        join_url: webinar.join_url,
+        password: webinar.password,
+        agenda: webinar.agenda,
+        timezone: webinar.timezone,
+        is_simulive: webinar.is_simulive,
+        webinar_type: webinar.webinar_type,
+        created_at_zoom: webinar.created_at_zoom,
+        settings: Array.isArray(webinar.settings) && webinar.settings.length > 0 ? webinar.settings[0] : undefined,
+        authentication: Array.isArray(webinar.authentication) && webinar.authentication.length > 0 ? webinar.authentication[0] : undefined,
+        recurrence: Array.isArray(webinar.recurrence) && webinar.recurrence.length > 0 ? webinar.recurrence[0] : undefined,
+        notifications: Array.isArray(webinar.notifications) && webinar.notifications.length > 0 ? webinar.notifications[0] : undefined,
+        qa_settings: Array.isArray(webinar.qa_settings) && webinar.qa_settings.length > 0 ? webinar.qa_settings[0] : undefined,
+        tracking_fields: Array.isArray(webinar.tracking_fields) ? webinar.tracking_fields : [],
+        occurrences: Array.isArray(webinar.occurrences) ? webinar.occurrences : [],
+        interpreters: Array.isArray(webinar.interpreters) ? webinar.interpreters : [],
+      }));
+
+      setWebinars(transformedData);
+      console.log(`Fetched ${transformedData.length} webinars with comprehensive data`);
+      
+    } catch (err: any) {
+      const errorMessage = err.message || 'Failed to fetch comprehensive webinar data';
+      setError(errorMessage);
+      console.error('Error fetching comprehensive webinar data:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
     fetchComprehensiveData();
   }, [user]);
 
