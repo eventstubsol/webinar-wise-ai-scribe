@@ -24,13 +24,13 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     )
 
-    const { organization_id, user_id } = await req.json()
+    const { organization_id, user_id, days_back = 180 } = await req.json()
     
     if (!organization_id || !user_id) {
       throw new Error('Organization ID and User ID are required')
     }
 
-    console.log('Starting comprehensive webinar sync for user:', user_id, 'org:', organization_id)
+    console.log(`Starting comprehensive webinar sync for user: ${user_id}, org: ${organization_id}, fetching ${days_back} days back`)
 
     // Get access token using the new token management
     const accessToken = await getZoomAccessToken(user_id, supabaseClient)
@@ -38,8 +38,8 @@ serve(async (req) => {
     // Log sync start
     const syncLog = await createSyncLog(supabaseClient, organization_id, user_id)
 
-    // Fetch webinars from Zoom API
-    const allWebinars = await fetchWebinarsFromZoom(accessToken)
+    // Fetch webinars from Zoom API with extended date range
+    const allWebinars = await fetchWebinarsFromZoom(accessToken, days_back)
 
     // Process and store webinars with comprehensive data
     let processedCount = 0
@@ -124,6 +124,7 @@ serve(async (req) => {
         webinars_synced: processedCount,
         total_found: allWebinars.length,
         errors: errorCount,
+        days_back,
         comprehensive_data: true
       }),
       {

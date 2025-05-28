@@ -1,4 +1,3 @@
-
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
@@ -196,6 +195,18 @@ async function getZoomAccessToken(userId: string, supabaseClient: any): Promise<
   return tokenData.access_token
 }
 
+function getDateRange(daysBack: number = 180): { from: string; to: string } {
+  const today = new Date()
+  const fromDate = new Date(today)
+  fromDate.setDate(today.getDate() - daysBack)
+  
+  // Format dates as yyyy-MM-dd for Zoom API
+  const from = fromDate.toISOString().split('T')[0]
+  const to = today.toISOString().split('T')[0]
+  
+  return { from, to }
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -207,13 +218,13 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     )
 
-    const { organization_id, user_id, config = DEFAULT_CONFIG } = await req.json()
+    const { organization_id, user_id, config = DEFAULT_CONFIG, days_back = 180 } = await req.json()
     
     if (!organization_id || !user_id) {
       throw new Error('Organization ID and User ID are required')
     }
 
-    console.log('Starting comprehensive rate-limited sync for user:', user_id)
+    console.log(`Starting comprehensive rate-limited sync for user: ${user_id}, fetching ${days_back} days back`)
 
     const rateLimiter = new ZoomRateLimiter()
     const accessToken = await getZoomAccessToken(user_id, supabaseClient)
@@ -228,7 +239,8 @@ serve(async (req) => {
         status: 'running',
         metadata: { 
           started_at: new Date().toISOString(),
-          config 
+          config,
+          days_back
         }
       })
       .select()
@@ -236,8 +248,8 @@ serve(async (req) => {
 
     console.log('Created comprehensive sync job:', syncJob?.id)
 
-    // Stage 1: Fetch webinars with rate limiting
-    console.log('Stage 1: Fetching webinars...')
+    // Stage 1: Fetch webinars with rate limiting and extended date range
+    console.log(`Stage 1: Fetching webinars from ${days_back} days back...`)
     await supabaseClient
       .from('sync_jobs')
       .update({ 
@@ -245,10 +257,14 @@ serve(async (req) => {
         metadata: { 
           ...syncJob?.metadata, 
           current_stage: 'webinars',
-          stage_message: 'Fetching webinar list...'
+          stage_message: `Fetching webinar list for past ${days_back} days...`
         }
       })
       .eq('id', syncJob?.id)
+
+    // Get date range for extended lookback
+    const { from, to } = getDateRange(days_back)
+    console.log(`Fetching webinars from ${from} to ${to}`)
 
     // Get webinars with pagination and rate limiting
     let allWebinars: any[] = []
@@ -263,6 +279,8 @@ serve(async (req) => {
         const params = new URLSearchParams({
           page_size: '50', // Smaller page size for rate limiting
           type: 'past',
+          from,
+          to,
         })
         
         if (nextPageToken) {
@@ -291,11 +309,11 @@ serve(async (req) => {
       console.log(`Page ${pageCount}: Found ${webinars.length} webinars`)
       
       // Rate limiting delay between pages
-      if (nextPageToken && pageCount < 20) { // Safety limit
+      if (nextPageToken && pageCount < 50) { // Increased safety limit for larger date range
         await rateLimiter.delay(config.webinarDelay)
       }
       
-    } while (nextPageToken && pageCount < 20)
+    } while (nextPageToken && pageCount < 50)
 
     console.log(`Total webinars found: ${allWebinars.length}`)
 
@@ -550,9 +568,8 @@ serve(async (req) => {
           webinars_found: allWebinars.length,
           detailed_sync_count: recentWebinars.length,
           api_requests_made: rateLimiter.limiter.requestCount,
-          completed_at: new Date().toISOString(),
-          current_stage: 'completed',
-          stage_message: 'Comprehensive sync completed successfully!'
+          days_back,
+          rate_limit_hits: 0 // TODO: Track this
         }
       })
       .eq('id', syncJob?.id)
@@ -568,6 +585,7 @@ serve(async (req) => {
           webinars_found: allWebinars.length,
           detailed_sync_count: recentWebinars.length,
           api_requests_made: rateLimiter.limiter.requestCount,
+          days_back,
           rate_limit_hits: 0 // TODO: Track this
         }
       }),

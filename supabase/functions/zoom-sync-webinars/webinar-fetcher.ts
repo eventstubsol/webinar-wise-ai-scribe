@@ -1,10 +1,17 @@
 
 import { ZoomWebinar } from './types.ts'
+import { getDateRange } from './date-utils.ts'
 
-export async function fetchWebinarsFromZoom(accessToken: string): Promise<ZoomWebinar[]> {
+export async function fetchWebinarsFromZoom(
+  accessToken: string, 
+  daysBack: number = 180
+): Promise<ZoomWebinar[]> {
   let allWebinars: ZoomWebinar[] = []
   let nextPageToken = ''
   let pageCount = 0
+  
+  const { from, to } = getDateRange(daysBack)
+  console.log(`Fetching webinars from ${from} to ${to} (${daysBack} days back)`)
   
   do {
     pageCount++
@@ -13,6 +20,8 @@ export async function fetchWebinarsFromZoom(accessToken: string): Promise<ZoomWe
     const params = new URLSearchParams({
       page_size: '50',
       type: 'past',
+      from,
+      to,
     })
     
     if (nextPageToken) {
@@ -42,7 +51,7 @@ export async function fetchWebinarsFromZoom(accessToken: string): Promise<ZoomWe
     // Add small delay to respect rate limits
     await new Promise(resolve => setTimeout(resolve, 200))
     
-  } while (nextPageToken && pageCount < 10) // Safety limit
+  } while (nextPageToken && pageCount < 50) // Increased safety limit for larger date range
 
   console.log(`Total webinars found: ${allWebinars.length}`)
   return allWebinars
