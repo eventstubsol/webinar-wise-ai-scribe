@@ -51,7 +51,7 @@ export const useZoomSync = () => {
     setSyncing(true);
     setSyncProgress({ 
       stage: 'webinars', 
-      message: 'Starting rate-limited comprehensive sync...', 
+      message: 'Starting comprehensive sync...', 
       progress: 5,
       apiRequestsUsed: 0
     });
@@ -90,15 +90,15 @@ export const useZoomSync = () => {
 
       setSyncProgress({ 
         stage: 'webinars', 
-        message: 'Starting rate-limited comprehensive sync...', 
+        message: 'Starting comprehensive sync...', 
         progress: 10,
         apiRequestsUsed: 0
       });
 
-      console.log('Calling zoom-comprehensive-rate-limited-sync function...');
+      console.log('Calling zoom-sync-all function...');
 
-      // Start rate-limited comprehensive sync using the new function
-      const syncResponse = await supabase.functions.invoke('zoom-comprehensive-rate-limited-sync', {
+      // Call the correct function name: zoom-sync-all
+      const syncResponse = await supabase.functions.invoke('zoom-sync-all', {
         body: { 
           organization_id: profile.organization_id,
           user_id: user.id 
@@ -113,13 +113,13 @@ export const useZoomSync = () => {
       }
 
       const result = syncResponse.data;
-      console.log('Rate-limited comprehensive sync result:', result);
+      console.log('Comprehensive sync result:', result);
 
       // Handle the response structure properly
       if (result && result.success) {
         toast({
-          title: "Smart Sync Started",
-          description: "Your data sync is running with intelligent rate limiting. This ensures reliable syncing while respecting API limits.",
+          title: "Sync Started",
+          description: "Your data sync is running. This may take a few minutes to complete.",
         });
 
         // Show summary if available
@@ -129,9 +129,6 @@ export const useZoomSync = () => {
           
           if (summary.webinars_synced !== undefined) {
             console.log(`Webinars synced: ${summary.webinars_synced}`);
-          }
-          if (summary.api_requests_made !== undefined) {
-            console.log(`API requests made: ${summary.api_requests_made}`);
           }
         }
       } else {

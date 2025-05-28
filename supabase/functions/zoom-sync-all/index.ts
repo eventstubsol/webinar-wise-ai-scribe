@@ -7,10 +7,72 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-interface SyncJobData {
-  webinar_id: string
-  zoom_webinar_id: string
-  title: string
+// Simple decryption function using built-in Web Crypto API
+async function decryptCredential(encryptedText: string, key: string): Promise<string> {
+  const encoder = new TextEncoder()
+  const decoder = new TextDecoder()
+  const keyData = encoder.encode(key.slice(0, 32).padEnd(32, '0'))
+  
+  const cryptoKey = await crypto.subtle.importKey(
+    'raw',
+    keyData,
+    { name: 'AES-GCM' },
+    false,
+    ['decrypt']
+  )
+  
+  // Decode base64 and extract IV and encrypted data
+  const combined = new Uint8Array(atob(encryptedText).split('').map(c => c.charCodeAt(0)))
+  const iv = combined.slice(0, 12)
+  const encrypted = combined.slice(12)
+  
+  const decrypted = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv },
+    cryptoKey,
+    encrypted
+  )
+  
+  return decoder.decode(decrypted)
+}
+
+async function getZoomAccessToken(userId: string, supabaseClient: any): Promise<string> {
+  const { data: connection, error: connectionError } = await supabaseClient
+    .from('zoom_connections')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('connection_status', 'active')
+    .single()
+
+  if (connectionError || !connection) {
+    throw new Error('No active Zoom connection found')
+  }
+
+  const encryptionKey = `${userId}-${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')?.slice(0, 32)}`
+  
+  const clientId = await decryptCredential(connection.encrypted_client_id, encryptionKey)
+  const clientSecret = await decryptCredential(connection.encrypted_client_secret, encryptionKey)
+  const accountId = await decryptCredential(connection.encrypted_account_id, encryptionKey)
+  
+  const tokenResponse = await fetch('https://zoom.us/oauth/token', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Basic ${btoa(`${clientId}:${clientSecret}`)}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: `grant_type=account_credentials&account_id=${encodeURIComponent(accountId)}`,
+  })
+
+  const tokenData = await tokenResponse.json()
+  
+  if (!tokenResponse.ok) {
+    throw new Error(`Failed to get access token: ${tokenData.error || tokenData.message}`)
+  }
+
+  return tokenData.access_token
+}
+
+async function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
 }
 
 serve(async (req) => {
@@ -47,87 +109,151 @@ serve(async (req) => {
 
     console.log('Created master sync job:', syncJob?.id)
 
-    // Step 1: Sync webinars first
+    // Get access token
+    const accessToken = await getZoomAccessToken(user_id, supabaseClient)
+
+    // Step 1: Sync webinars with rate limiting
     console.log('Step 1: Syncing webinars...')
-    const webinarsResult = await supabaseClient.functions.invoke('zoom-sync-webinars', {
-      body: { organization_id, user_id }
-    })
-
-    if (webinarsResult.error) {
-      throw new Error(`Webinars sync failed: ${webinarsResult.error.message}`)
-    }
-
-    // Update progress
     await supabaseClient
       .from('sync_jobs')
       .update({ progress: 20, current_item: 1 })
       .eq('id', syncJob?.id)
 
-    // Step 2: Get list of webinars to sync detailed data for
-    const { data: webinars } = await supabaseClient
-      .from('webinars')
-      .select('id, zoom_webinar_id, title')
-      .eq('user_id', user_id)
-      .not('zoom_webinar_id', 'is', null)
-      .order('created_at', { ascending: false })
-      .limit(10) // Sync detailed data for 10 most recent webinars
+    let allWebinars: any[] = []
+    let nextPageToken = ''
+    let pageCount = 0
+    
+    // Fetch webinars with pagination and rate limiting
+    do {
+      pageCount++
+      console.log(`Fetching webinars page ${pageCount}...`)
+      
+      const params = new URLSearchParams({
+        page_size: '30', // Smaller page size for rate limiting
+        type: 'past',
+      })
+      
+      if (nextPageToken) {
+        params.append('next_page_token', nextPageToken)
+      }
 
-    console.log(`Step 2: Found ${webinars?.length || 0} webinars for detailed sync`)
+      const response = await fetch(`https://api.zoom.us/v2/users/me/webinars?${params}`, {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+      })
 
-    if (!webinars || webinars.length === 0) {
+      if (!response.ok) {
+        const errorData = await response.json()
+        console.error('Zoom API error:', errorData)
+        throw new Error(`Zoom API error: ${errorData.message || errorData.error}`)
+      }
+
+      const webinarsData = await response.json()
+      const webinars = webinarsData.webinars || []
+      allWebinars = allWebinars.concat(webinars)
+      nextPageToken = webinarsData.next_page_token || ''
+      
+      console.log(`Page ${pageCount}: Found ${webinars.length} webinars`)
+      
+      // Rate limiting delay between pages
+      if (nextPageToken && pageCount < 10) { // Safety limit
+        await delay(1000) // 1 second delay
+      }
+      
+    } while (nextPageToken && pageCount < 10)
+
+    console.log(`Total webinars found: ${allWebinars.length}`)
+
+    // Process webinars in smaller batches
+    const batchSize = 5
+    let processedCount = 0
+
+    for (let i = 0; i < allWebinars.length; i += batchSize) {
+      const batch = allWebinars.slice(i, i + batchSize)
+      
+      for (const webinar of batch) {
+        try {
+          // Upsert webinar data
+          const { error: upsertError } = await supabaseClient
+            .from('webinars')
+            .upsert({
+              zoom_webinar_id: webinar.id,
+              organization_id,
+              user_id,
+              title: webinar.topic,
+              host_name: webinar.host_email,
+              start_time: webinar.start_time,
+              duration_minutes: webinar.duration,
+              registrants_count: 0,
+              updated_at: new Date().toISOString(),
+            }, {
+              onConflict: 'zoom_webinar_id',
+            })
+
+          if (upsertError) {
+            console.error('Error upserting webinar:', upsertError)
+          } else {
+            processedCount++
+          }
+        } catch (error) {
+          console.error(`Error processing webinar ${webinar.topic}:`, error)
+        }
+
+        // Small delay between webinars
+        await delay(200)
+      }
+
+      // Update progress
+      const progress = 20 + Math.round((i + batch.length) / allWebinars.length * 50) // 20-70%
       await supabaseClient
         .from('sync_jobs')
         .update({ 
-          status: 'completed', 
-          progress: 100,
-          completed_at: new Date().toISOString(),
-          metadata: { 
-            message: 'No webinars found for detailed sync',
-            webinars_synced: webinarsResult.data?.webinars_synced || 0
-          }
+          progress,
+          current_item: i + batch.length,
+          total_items: allWebinars.length
         })
         .eq('id', syncJob?.id)
 
-      return new Response(
-        JSON.stringify({ 
-          success: true, 
-          message: 'Sync completed - webinars only',
-          webinars_synced: webinarsResult.data?.webinars_synced || 0
-        }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
+      // Delay between batches
+      if (i + batchSize < allWebinars.length) {
+        await delay(2000) // 2 second delay between batches
+      }
     }
 
-    // Update total items
-    await supabaseClient
-      .from('sync_jobs')
-      .update({ 
-        total_items: webinars.length * 5, // 5 sync operations per webinar
-        current_item: 1
-      })
-      .eq('id', syncJob?.id)
+    // Step 2: Sync detailed data for recent webinars (limit to 5 to avoid timeout)
+    const recentWebinars = allWebinars.slice(0, 5)
+    console.log(`Step 2: Syncing detailed data for ${recentWebinars.length} recent webinars...`)
 
     let totalParticipants = 0
-    let totalChat = 0
-    let totalPolls = 0
-    let totalQA = 0
     let totalRegistrations = 0
     let syncErrors: string[] = []
 
-    // Step 3: Sync detailed data for each webinar
-    for (let i = 0; i < webinars.length; i++) {
-      const webinar = webinars[i]
-      console.log(`Processing webinar ${i + 1}/${webinars.length}: ${webinar.title}`)
+    for (let i = 0; i < recentWebinars.length; i++) {
+      const webinar = recentWebinars[i]
+      console.log(`Processing webinar ${i + 1}/${recentWebinars.length}: ${webinar.topic}`)
 
       try {
-        // Participants sync
+        // Get webinar record from database
+        const { data: webinarRecord } = await supabaseClient
+          .from('webinars')
+          .select('id')
+          .eq('zoom_webinar_id', webinar.id)
+          .single()
+
+        if (!webinarRecord) continue
+
+        const webinar_id = webinarRecord.id
+
+        // Only sync participants and registrations to avoid scope issues
         console.log('  - Syncing participants...')
         const participantsResult = await supabaseClient.functions.invoke('zoom-sync-participants', {
           body: {
             organization_id,
             user_id,
-            webinar_id: webinar.id,
-            zoom_webinar_id: webinar.zoom_webinar_id,
+            webinar_id,
+            zoom_webinar_id: webinar.id,
           }
         })
 
@@ -135,91 +261,15 @@ serve(async (req) => {
           totalParticipants += participantsResult.data.participants_synced
         }
 
-        await supabaseClient
-          .from('sync_jobs')
-          .update({ 
-            progress: 20 + Math.round((i * 5 + 1) / (webinars.length * 5) * 70),
-            current_item: i * 5 + 2
-          })
-          .eq('id', syncJob?.id)
+        await delay(2000) // 2 second delay
 
-        // Chat sync
-        console.log('  - Syncing chat messages...')
-        const chatResult = await supabaseClient.functions.invoke('zoom-sync-chat', {
-          body: {
-            organization_id,
-            user_id,
-            webinar_id: webinar.id,
-            zoom_webinar_id: webinar.zoom_webinar_id,
-          }
-        })
-
-        if (chatResult.data?.messages_synced) {
-          totalChat += chatResult.data.messages_synced
-        }
-
-        await supabaseClient
-          .from('sync_jobs')
-          .update({ 
-            progress: 20 + Math.round((i * 5 + 2) / (webinars.length * 5) * 70),
-            current_item: i * 5 + 3
-          })
-          .eq('id', syncJob?.id)
-
-        // Polls sync
-        console.log('  - Syncing polls...')
-        const pollsResult = await supabaseClient.functions.invoke('zoom-sync-polls', {
-          body: {
-            organization_id,
-            user_id,
-            webinar_id: webinar.id,
-            zoom_webinar_id: webinar.zoom_webinar_id,
-          }
-        })
-
-        if (pollsResult.data?.polls_synced) {
-          totalPolls += pollsResult.data.polls_synced
-        }
-
-        await supabaseClient
-          .from('sync_jobs')
-          .update({ 
-            progress: 20 + Math.round((i * 5 + 3) / (webinars.length * 5) * 70),
-            current_item: i * 5 + 4
-          })
-          .eq('id', syncJob?.id)
-
-        // Q&A sync
-        console.log('  - Syncing Q&A...')
-        const qaResult = await supabaseClient.functions.invoke('zoom-sync-qa', {
-          body: {
-            organization_id,
-            user_id,
-            webinar_id: webinar.id,
-            zoom_webinar_id: webinar.zoom_webinar_id,
-          }
-        })
-
-        if (qaResult.data?.qa_synced) {
-          totalQA += qaResult.data.qa_synced
-        }
-
-        await supabaseClient
-          .from('sync_jobs')
-          .update({ 
-            progress: 20 + Math.round((i * 5 + 4) / (webinars.length * 5) * 70),
-            current_item: i * 5 + 5
-          })
-          .eq('id', syncJob?.id)
-
-        // Registrations sync
         console.log('  - Syncing registrations...')
         const registrationsResult = await supabaseClient.functions.invoke('zoom-sync-registrations', {
           body: {
             organization_id,
             user_id,
-            webinar_id: webinar.id,
-            zoom_webinar_id: webinar.zoom_webinar_id,
+            webinar_id,
+            zoom_webinar_id: webinar.id,
           }
         })
 
@@ -227,20 +277,18 @@ serve(async (req) => {
           totalRegistrations += registrationsResult.data.registrations_synced
         }
 
+        await delay(2000) // 2 second delay
+
+        // Update progress
+        const progress = 70 + Math.round((i + 1) / recentWebinars.length * 25) // 70-95%
         await supabaseClient
           .from('sync_jobs')
-          .update({ 
-            progress: 20 + Math.round((i * 5 + 5) / (webinars.length * 5) * 70),
-            current_item: i * 5 + 5
-          })
+          .update({ progress })
           .eq('id', syncJob?.id)
 
-        // Small delay between webinars
-        await new Promise(resolve => setTimeout(resolve, 1000))
-
       } catch (error) {
-        console.error(`Error syncing webinar ${webinar.title}:`, error)
-        syncErrors.push(`${webinar.title}: ${error.message}`)
+        console.error(`Error syncing detailed data for webinar ${webinar.topic}:`, error)
+        syncErrors.push(`${webinar.topic}: ${error.message}`)
       }
     }
 
@@ -252,12 +300,10 @@ serve(async (req) => {
         progress: 100,
         completed_at: new Date().toISOString(),
         metadata: {
-          webinars_synced: webinarsResult.data?.webinars_synced || 0,
+          webinars_synced: processedCount,
           participants_synced: totalParticipants,
-          chat_messages_synced: totalChat,
-          polls_synced: totalPolls,
-          qa_synced: totalQA,
           registrations_synced: totalRegistrations,
+          webinars_detailed: recentWebinars.length,
           errors: syncErrors,
           completed_at: new Date().toISOString()
         }
@@ -271,13 +317,10 @@ serve(async (req) => {
         success: true,
         job_id: syncJob?.id,
         summary: {
-          webinars_synced: webinarsResult.data?.webinars_synced || 0,
+          webinars_synced: processedCount,
           participants_synced: totalParticipants,
-          chat_messages_synced: totalChat,
-          polls_synced: totalPolls,
-          qa_synced: totalQA,
           registrations_synced: totalRegistrations,
-          webinars_detailed: webinars.length,
+          webinars_detailed: recentWebinars.length,
           errors: syncErrors.length
         }
       }),
