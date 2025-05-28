@@ -529,6 +529,75 @@ export type Database = {
           },
         ]
       }
+      webinar_panelists: {
+        Row: {
+          created_at: string
+          duration_minutes: number | null
+          email: string
+          id: string
+          invited_at: string | null
+          join_url: string | null
+          joined_at: string | null
+          left_at: string | null
+          name: string | null
+          organization_id: string
+          status: string | null
+          updated_at: string
+          virtual_background_id: string | null
+          webinar_id: string
+          zoom_panelist_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          duration_minutes?: number | null
+          email: string
+          id?: string
+          invited_at?: string | null
+          join_url?: string | null
+          joined_at?: string | null
+          left_at?: string | null
+          name?: string | null
+          organization_id: string
+          status?: string | null
+          updated_at?: string
+          virtual_background_id?: string | null
+          webinar_id: string
+          zoom_panelist_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          duration_minutes?: number | null
+          email?: string
+          id?: string
+          invited_at?: string | null
+          join_url?: string | null
+          joined_at?: string | null
+          left_at?: string | null
+          name?: string | null
+          organization_id?: string
+          status?: string | null
+          updated_at?: string
+          virtual_background_id?: string | null
+          webinar_id?: string
+          zoom_panelist_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "webinar_panelists_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "webinar_panelists_webinar_id_fkey"
+            columns: ["webinar_id"]
+            isOneToOne: false
+            referencedRelation: "webinars"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       webinar_qa_settings: {
         Row: {
           allow_anonymous_questions: boolean | null

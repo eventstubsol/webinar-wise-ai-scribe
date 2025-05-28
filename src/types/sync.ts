@@ -1,4 +1,3 @@
-
 export interface SyncLog {
   id: string;
   sync_type: string;
@@ -23,7 +22,7 @@ export interface SyncJob {
 }
 
 export interface SyncProgress {
-  stage: 'idle' | 'webinars' | 'webinar_details' | 'participants' | 'chat' | 'polls' | 'qa' | 'registrations' | 'background_processing' | 'completed' | 'error';
+  stage: 'idle' | 'webinars' | 'webinar_details' | 'participants' | 'panelists' | 'chat' | 'polls' | 'qa' | 'registrations' | 'background_processing' | 'completed' | 'error';
   message: string;
   progress: number;
   details?: {
@@ -31,6 +30,7 @@ export interface SyncProgress {
     webinars_synced?: number;
     detailed_sync_count?: number;
     participants_synced?: number;
+    panelists_synced?: number;
     polls_synced?: number;
     qa_synced?: number;
     registrations_synced?: number;
@@ -96,4 +96,14 @@ export interface WebinarDetails {
   qa_settings?: any;
   notifications?: any;
   interpreters?: any[];
+  
+  // Add panelist data
+  panelists?: Array<{
+    id: string;
+    email: string;
+    name?: string;
+    status: string;
+    joined_at?: string;
+    duration_minutes: number;
+  }>;
 }

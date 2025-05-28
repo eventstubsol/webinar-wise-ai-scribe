@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
@@ -89,6 +88,14 @@ interface ComprehensiveWebinarData {
     languages?: string | null;
     sign_language?: string | null;
   }>;
+  panelists?: Array<{
+    id: string;
+    email: string;
+    name?: string;
+    status: string;
+    joined_at?: string;
+    duration_minutes: number;
+  }>;
 }
 
 export const useComprehensiveWebinarData = () => {
@@ -104,7 +111,7 @@ export const useComprehensiveWebinarData = () => {
       setLoading(true);
       setError(null);
       
-      // Fetch webinars with all related data
+      // Fetch webinars with all related data including panelists
       const { data: webinarsData, error: webinarsError } = await supabase
         .from('webinars')
         .select(`
@@ -116,7 +123,8 @@ export const useComprehensiveWebinarData = () => {
           qa_settings:webinar_qa_settings(*),
           tracking_fields:webinar_tracking_fields(*),
           occurrences:webinar_occurrences(*),
-          interpreters:webinar_interpreters(*)
+          interpreters:webinar_interpreters(*),
+          panelists:webinar_panelists(*)
         `)
         .order('created_at', { ascending: false })
         .limit(50);
@@ -153,10 +161,11 @@ export const useComprehensiveWebinarData = () => {
         tracking_fields: Array.isArray(webinar.tracking_fields) ? webinar.tracking_fields : [],
         occurrences: Array.isArray(webinar.occurrences) ? webinar.occurrences : [],
         interpreters: Array.isArray(webinar.interpreters) ? webinar.interpreters : [],
+        panelists: Array.isArray(webinar.panelists) ? webinar.panelists : [],
       }));
 
       setWebinars(transformedData);
-      console.log(`Fetched ${transformedData.length} webinars with comprehensive data`);
+      console.log(`Fetched ${transformedData.length} webinars with comprehensive data including panelists`);
       
     } catch (err: any) {
       const errorMessage = err.message || 'Failed to fetch comprehensive webinar data';

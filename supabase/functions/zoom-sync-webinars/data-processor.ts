@@ -1,5 +1,6 @@
+import { processPanelistData } from './panelist-processor.ts'
 
-export async function processWebinarComprehensiveData(webinarData: any, webinar_id: string, organization_id: string, supabaseClient: any) {
+export async function processWebinarComprehensiveData(webinarData: any, webinar_id: string, organization_id: string, supabaseClient: any, accessToken?: string) {
   console.log(`Processing comprehensive data for webinar: ${webinarData.topic}`)
   
   try {
@@ -249,6 +250,11 @@ export async function processWebinarComprehensiveData(webinarData: any, webinar_
       } catch (error) {
         console.error(`  - Error processing occurrences:`, error)
       }
+    }
+
+    // Process panelist data if access token is provided
+    if (accessToken) {
+      await processPanelistData(webinarData, webinar_id, organization_id, supabaseClient, accessToken)
     }
 
     console.log(`  - Comprehensive data processed successfully`)

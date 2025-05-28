@@ -30,7 +30,7 @@ serve(async (req) => {
       throw new Error('Organization ID and User ID are required')
     }
 
-    console.log('Starting comprehensive webinar sync for user:', user_id, 'org:', organization_id)
+    console.log('Starting comprehensive webinar sync with panelist data for user:', user_id, 'org:', organization_id)
 
     // Get access token using the new token management
     const accessToken = await getZoomAccessToken(user_id, supabaseClient)
@@ -41,7 +41,7 @@ serve(async (req) => {
     // Fetch webinars from Zoom API
     const allWebinars = await fetchWebinarsFromZoom(accessToken)
 
-    // Process and store webinars with comprehensive data
+    // Process and store webinars with comprehensive data including panelists
     let processedCount = 0
     let errorCount = 0
     
@@ -94,12 +94,12 @@ serve(async (req) => {
           .single()
 
         if (!upsertError && webinarRecord) {
-          // Process comprehensive settings data with proper error handling
-          await processWebinarComprehensiveData(detailData, webinarRecord.id, organization_id, supabaseClient)
+          // Process comprehensive settings data with proper error handling and panelist data
+          await processWebinarComprehensiveData(detailData, webinarRecord.id, organization_id, supabaseClient, accessToken)
           processedCount++
           
           if (processedCount % 10 === 0) {
-            console.log(`Processed ${processedCount} webinars with comprehensive data...`)
+            console.log(`Processed ${processedCount} webinars with comprehensive data including panelists...`)
           }
         } else {
           console.error('Error upserting webinar:', upsertError)
@@ -115,7 +115,7 @@ serve(async (req) => {
       }
     }
 
-    console.log(`Comprehensive webinar sync completed: ${processedCount} processed, ${errorCount} errors`)
+    console.log(`Comprehensive webinar sync with panelists completed: ${processedCount} processed, ${errorCount} errors`)
 
     // Update sync log
     if (syncLog?.id) {
@@ -128,7 +128,8 @@ serve(async (req) => {
         webinars_synced: processedCount,
         total_found: allWebinars.length,
         errors: errorCount,
-        comprehensive_data: true
+        comprehensive_data: true,
+        panelist_data_included: true
       }),
       {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -136,7 +137,7 @@ serve(async (req) => {
     )
 
   } catch (error) {
-    console.error('Comprehensive webinar sync error:', error)
+    console.error('Comprehensive webinar sync with panelists error:', error)
     
     // Try to update sync log with error
     try {
