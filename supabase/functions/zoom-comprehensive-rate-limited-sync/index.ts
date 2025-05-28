@@ -1,4 +1,3 @@
-
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
@@ -11,6 +10,7 @@ interface SyncProgress {
   webinars_synced: number
   detailed_sync_count: number
   participants_synced: number
+  panelists_synced: number
   polls_synced: number
   qa_synced: number
   registrations_synced: number
@@ -129,6 +129,130 @@ function calculateEndTime(startTime: string, durationMinutes: number): string | 
   return end.toISOString()
 }
 
+// Sync webinar panelists function
+async function syncWebinarPanelists(webinarId: string, webinar_id: string, organization_id: string, accessToken: string, supabaseClient: any, progress: SyncProgress) {
+  try {
+    console.log(`Syncing panelists for webinar: ${webinarId}`)
+    
+    // Fetch panelist list
+    const panelistsResponse = await fetch(`https://api.zoom.us/v2/webinars/${webinarId}/panelists`, {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+      },
+    })
+    progress.api_requests_made++
+    
+    // Fetch panelist participation data
+    await rateLimitedDelay(progress.api_requests_made)
+    const participationResponse = await fetch(`https://api.zoom.us/v2/past_webinars/${webinarId}/panelists`, {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+      },
+    })
+    progress.api_requests_made++
+
+    let panelists = []
+    let participationData = []
+
+    if (panelistsResponse.ok) {
+      const data = await panelistsResponse.json()
+      panelists = data.panelists || []
+    }
+
+    if (participationResponse.ok) {
+      const data = await participationResponse.json()
+      participationData = data.panelists || []
+    }
+
+    if (panelists.length === 0 && participationData.length === 0) {
+      console.log(`No panelist data found for webinar ${webinarId}`)
+      return
+    }
+
+    // Create participation lookup map
+    const participationMap = new Map()
+    participationData.forEach(p => {
+      participationMap.set(p.email, p)
+    })
+
+    // Process each panelist
+    for (const panelist of panelists) {
+      try {
+        const participation = participationMap.get(panelist.email)
+        
+        let durationMinutes = 0
+        if (participation?.duration) {
+          durationMinutes = Math.round(participation.duration / 60)
+        }
+
+        let status = 'invited'
+        if (participation?.join_time) {
+          status = 'joined'
+        }
+
+        await supabaseClient
+          .from('webinar_panelists')
+          .upsert({
+            webinar_id,
+            organization_id,
+            zoom_panelist_id: panelist.id,
+            email: panelist.email,
+            name: panelist.name || participation?.name,
+            join_url: panelist.join_url,
+            virtual_background_id: panelist.virtual_background_id,
+            status,
+            invited_at: new Date().toISOString(),
+            joined_at: participation?.join_time || null,
+            left_at: participation?.leave_time || null,
+            duration_minutes: durationMinutes,
+            updated_at: new Date().toISOString(),
+          }, {
+            onConflict: 'webinar_id,zoom_panelist_id'
+          })
+
+        progress.panelists_synced++
+      } catch (error) {
+        console.error(`Error processing panelist ${panelist.email}:`, error)
+      }
+    }
+
+    // Process any participation data without corresponding panelist records
+    for (const participation of participationData) {
+      if (!panelists.find(p => p.email === participation.email)) {
+        try {
+          const durationMinutes = participation.duration ? Math.round(participation.duration / 60) : 0
+
+          await supabaseClient
+            .from('webinar_panelists')
+            .upsert({
+              webinar_id,
+              organization_id,
+              zoom_panelist_id: participation.id,
+              email: participation.email,
+              name: participation.name,
+              status: participation.join_time ? 'joined' : 'invited',
+              joined_at: participation.join_time || null,
+              left_at: participation.leave_time || null,
+              duration_minutes: durationMinutes,
+              updated_at: new Date().toISOString(),
+            }, {
+              onConflict: 'webinar_id,zoom_panelist_id'
+            })
+
+          progress.panelists_synced++
+        } catch (error) {
+          console.error(`Error processing participation record ${participation.email}:`, error)
+        }
+      }
+    }
+
+    console.log(`Processed ${panelists.length} panelists and ${participationData.length} participation records`)
+    
+  } catch (error) {
+    console.error(`Error syncing panelists for webinar ${webinarId}:`, error)
+  }
+}
+
 // Background processing function for detailed sync
 async function processDetailedSync(
   webinars: any[], 
@@ -145,6 +269,7 @@ async function processDetailedSync(
       webinars_synced: 0,
       detailed_sync_count: 0,
       participants_synced: 0,
+      panelists_synced: 0,
       polls_synced: 0,
       qa_synced: 0,
       registrations_synced: 0,
@@ -188,6 +313,12 @@ async function processDetailedSync(
           // Sync participants
           await rateLimitedDelay(progress.api_requests_made)
           await syncWebinarParticipants(webinar.id, webinarRecord.id, organization_id, accessToken, supabaseClient, progress)
+          
+          // Sync panelists
+          progress.current_stage = 'panelists'
+          progress.stage_message = `Processing panelists for: ${webinar.topic}`
+          await rateLimitedDelay(progress.api_requests_made)
+          await syncWebinarPanelists(webinar.id, webinarRecord.id, organization_id, accessToken, supabaseClient, progress)
           
           // Sync polls
           progress.current_stage = 'polls'
@@ -430,6 +561,7 @@ serve(async (req) => {
       webinars_synced: 0,
       detailed_sync_count: 0,
       participants_synced: 0,
+      panelists_synced: 0,
       polls_synced: 0,
       qa_synced: 0,
       registrations_synced: 0,

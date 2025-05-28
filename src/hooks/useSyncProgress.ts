@@ -36,6 +36,7 @@ export const useSyncProgress = (syncJobs: SyncJob[], syncing: boolean) => {
             webinars_synced: metadata.webinars_synced,
             detailed_sync_count: metadata.detailed_sync_count,
             participants_synced: metadata.participants_synced,
+            panelists_synced: metadata.panelists_synced,
             polls_synced: metadata.polls_synced,
             qa_synced: metadata.qa_synced,
             registrations_synced: metadata.registrations_synced,

@@ -1,3 +1,4 @@
+
 export interface SyncLog {
   id: string;
   sync_type: string;
