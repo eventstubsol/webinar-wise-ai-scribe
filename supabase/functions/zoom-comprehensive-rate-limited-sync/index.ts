@@ -105,12 +105,114 @@ async function getZoomAccessToken(userId: string, supabaseClient: any): Promise<
 
 // Rate limiting helper
 async function rateLimitedDelay(requestCount: number) {
-  // Zoom allows up to 80 requests per second
-  // We'll be conservative and do max 40 requests per second
   if (requestCount % 10 === 0) {
-    await new Promise(resolve => setTimeout(resolve, 250)) // 250ms delay every 10 requests
+    await new Promise(resolve => setTimeout(resolve, 250))
   } else {
-    await new Promise(resolve => setTimeout(resolve, 25)) // 25ms between each request
+    await new Promise(resolve => setTimeout(resolve, 25))
+  }
+}
+
+// Map Zoom webinar type to our database enum
+function mapWebinarType(zoomType: number): string {
+  switch (zoomType) {
+    case 1: return 'webinar'
+    case 5: return 'recurring_webinar'
+    case 6: return 'webinar_pac'
+    case 9: return 'recurring_webinar_pac'
+    default: return 'webinar'
+  }
+}
+
+// Calculate end time from start time and duration
+function calculateEndTime(startTime: string, durationMinutes: number): string | null {
+  if (!startTime || !durationMinutes) return null
+  const start = new Date(startTime)
+  const end = new Date(start.getTime() + durationMinutes * 60000)
+  return end.toISOString()
+}
+
+// Fetch webinar recordings
+async function fetchWebinarRecordings(webinarId: string, accessToken: string, progress: SyncProgress): Promise<{ has_recording: boolean, recording_count: number }> {
+  try {
+    console.log(`Fetching recordings for webinar ${webinarId}`)
+    
+    const response = await fetch(`https://api.zoom.us/v2/webinars/${webinarId}/recordings`, {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+      },
+    })
+
+    progress.api_requests_made++
+
+    if (response.ok) {
+      const data = await response.json()
+      const recordings = data.recording_files || []
+      return {
+        has_recording: recordings.length > 0,
+        recording_count: recordings.length
+      }
+    } else if (response.status === 404) {
+      // No recordings found - this is normal
+      return { has_recording: false, recording_count: 0 }
+    } else {
+      console.warn(`Failed to fetch recordings for webinar ${webinarId}: ${response.status}`)
+      return { has_recording: false, recording_count: 0 }
+    }
+  } catch (error) {
+    console.error(`Error fetching recordings for webinar ${webinarId}:`, error)
+    return { has_recording: false, recording_count: 0 }
+  }
+}
+
+// Fetch webinar registrants count
+async function fetchRegistrantsCount(webinarId: string, accessToken: string, progress: SyncProgress): Promise<number> {
+  try {
+    console.log(`Fetching registrants for webinar ${webinarId}`)
+    
+    const response = await fetch(`https://api.zoom.us/v2/webinars/${webinarId}/registrants?page_size=1`, {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+      },
+    })
+
+    progress.api_requests_made++
+
+    if (response.ok) {
+      const data = await response.json()
+      return data.total_records || 0
+    } else {
+      console.warn(`Failed to fetch registrants for webinar ${webinarId}: ${response.status}`)
+      return 0
+    }
+  } catch (error) {
+    console.error(`Error fetching registrants for webinar ${webinarId}:`, error)
+    return 0
+  }
+}
+
+// Fetch webinar participants count (for past webinars)
+async function fetchParticipantsCount(webinarId: string, accessToken: string, progress: SyncProgress): Promise<number> {
+  try {
+    console.log(`Fetching participants count for webinar ${webinarId}`)
+    
+    const response = await fetch(`https://api.zoom.us/v2/past_webinars/${webinarId}/participants?page_size=1`, {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+      },
+    })
+
+    progress.api_requests_made++
+
+    if (response.ok) {
+      const data = await response.json()
+      return data.total_records || 0
+    } else {
+      console.warn(`Failed to fetch participants for webinar ${webinarId}: ${response.status}`)
+      return 0
+    }
+  } catch (error) {
+    console.error(`Error fetching participants for webinar ${webinarId}:`, error)
+    return 0
   }
 }
 
@@ -411,9 +513,6 @@ function calculateEngagementScore(participant: any): number {
     score += Math.min(40, Math.round(participant.duration / 60 * 40))
   }
   
-  // Additional engagement factors could be added here
-  // Chat messages, poll participation, etc.
-  
   return Math.min(100, score)
 }
 
@@ -434,7 +533,7 @@ serve(async (req) => {
       throw new Error('Organization ID and User ID are required')
     }
 
-    console.log('Starting TRUE comprehensive sync for user:', user_id, 'org:', organization_id)
+    console.log('Starting ENHANCED comprehensive sync for user:', user_id, 'org:', organization_id)
 
     // Create master sync job
     const { data: syncJob } = await supabaseClient
@@ -448,7 +547,7 @@ serve(async (req) => {
         metadata: { 
           started_at: new Date().toISOString(),
           current_stage: 'webinars',
-          stage_message: 'Starting TRUE comprehensive sync...',
+          stage_message: 'Starting ENHANCED comprehensive sync...',
           api_requests_made: 0
         }
       })
@@ -473,27 +572,28 @@ serve(async (req) => {
     const accessToken = await getZoomAccessToken(user_id, supabaseClient)
     progress.api_requests_made++
 
-    // Step 1: Sync webinars with comprehensive data
-    console.log('Step 1: Comprehensive webinar sync...')
+    // Step 1: Sync BOTH past and upcoming webinars with complete data
+    console.log('Step 1: ENHANCED webinar sync with complete data...')
     await supabaseClient
       .from('sync_jobs')
       .update({ 
         progress: 10,
         metadata: {
           ...progress,
-          stage_message: 'Fetching webinars from Zoom...'
+          stage_message: 'Fetching past and upcoming webinars...'
         }
       })
       .eq('id', syncJob?.id)
 
-    // Fetch webinars with pagination and rate limiting
+    // Fetch past webinars
     let allWebinars: any[] = []
     let nextPageToken = ''
     let pageCount = 0
     
+    // First, get past webinars
     do {
       pageCount++
-      console.log(`Fetching page ${pageCount} of webinars...`)
+      console.log(`Fetching page ${pageCount} of PAST webinars...`)
       
       const params = new URLSearchParams({
         page_size: '30',
@@ -523,17 +623,61 @@ serve(async (req) => {
 
       const data = await response.json()
       const webinars = data.webinars || []
-      allWebinars = allWebinars.concat(webinars)
+      allWebinars = allWebinars.concat(webinars.map(w => ({ ...w, webinar_category: 'past' })))
       nextPageToken = data.next_page_token || ''
       
-      console.log(`Page ${pageCount}: Found ${webinars.length} webinars`)
+      console.log(`Page ${pageCount}: Found ${webinars.length} past webinars`)
       
-    } while (nextPageToken && pageCount < 20)
+    } while (nextPageToken && pageCount < 10)
 
-    console.log(`Total webinars found: ${allWebinars.length}`)
+    // Then, get upcoming webinars
+    nextPageToken = ''
+    pageCount = 0
+    
+    do {
+      pageCount++
+      console.log(`Fetching page ${pageCount} of UPCOMING webinars...`)
+      
+      const params = new URLSearchParams({
+        page_size: '30',
+        type: 'upcoming',
+      })
+      
+      if (nextPageToken) {
+        params.append('next_page_token', nextPageToken)
+      }
 
-    // Process webinars with comprehensive data collection
-    const BATCH_SIZE = 3 // Smaller batches for comprehensive processing
+      await rateLimitedDelay(progress.api_requests_made)
+
+      const response = await fetch(`https://api.zoom.us/v2/users/me/webinars?${params}`, {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+      })
+
+      progress.api_requests_made++
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        console.error('Zoom API error for upcoming webinars:', errorData)
+        // Don't throw error for upcoming webinars as some accounts might not have access
+        break
+      }
+
+      const data = await response.json()
+      const webinars = data.webinars || []
+      allWebinars = allWebinars.concat(webinars.map(w => ({ ...w, webinar_category: 'upcoming' })))
+      nextPageToken = data.next_page_token || ''
+      
+      console.log(`Page ${pageCount}: Found ${webinars.length} upcoming webinars`)
+      
+    } while (nextPageToken && pageCount < 5)
+
+    console.log(`Total webinars found: ${allWebinars.length} (past + upcoming)`)
+
+    // Process webinars with COMPLETE data collection
+    const BATCH_SIZE = 3
     let processedCount = 0
 
     for (let i = 0; i < allWebinars.length; i += BATCH_SIZE) {
@@ -555,7 +699,38 @@ serve(async (req) => {
           if (detailResponse.ok) {
             const detailData = await detailResponse.json()
             
-            // Upsert main webinar data
+            // Fetch additional data for complete mapping
+            console.log(`Fetching complete data for webinar: ${detailData.topic}`)
+            
+            // Get recordings info
+            const recordingInfo = await fetchWebinarRecordings(zoomWebinar.id, accessToken, progress)
+            
+            // Get registrants count
+            const registrantsCount = await fetchRegistrantsCount(zoomWebinar.id, accessToken, progress)
+            
+            // Get participants count (for past webinars only)
+            let attendeesCount = 0
+            if (zoomWebinar.webinar_category === 'past') {
+              attendeesCount = await fetchParticipantsCount(zoomWebinar.id, accessToken, progress)
+            }
+            
+            // Calculate end_time
+            const endTime = calculateEndTime(detailData.start_time, detailData.duration)
+            
+            // Map webinar type correctly
+            const mappedWebinarType = mapWebinarType(detailData.type || 1)
+            
+            console.log(`Mapping complete data for webinar ${zoomWebinar.id}:`, {
+              type: detailData.type,
+              mappedType: mappedWebinarType,
+              duration: detailData.duration,
+              endTime,
+              registrantsCount,
+              attendeesCount,
+              recordings: recordingInfo
+            })
+            
+            // Upsert main webinar data with ALL FIELDS PROPERLY MAPPED
             const { data: webinarRecord, error: upsertError } = await supabaseClient
               .from('webinars')
               .upsert({
@@ -567,15 +742,25 @@ serve(async (req) => {
                 host_id: detailData.host_id,
                 uuid: detailData.uuid,
                 start_time: detailData.start_time || zoomWebinar.start_time,
+                end_time: endTime, // CALCULATED END TIME
                 duration_minutes: detailData.duration || zoomWebinar.duration,
-                registrants_count: detailData.registrants_count || 0,
+                registrants_count: registrantsCount, // ACTUAL REGISTRANTS COUNT
+                attendees_count: attendeesCount, // ACTUAL ATTENDEES COUNT  
                 join_url: detailData.join_url,
                 password: detailData.password,
                 timezone: detailData.timezone,
                 agenda: detailData.agenda,
                 created_at_zoom: detailData.created_at,
+                webinar_number: parseInt(detailData.id), // ACTUAL WEBINAR NUMBER
                 is_simulive: detailData.is_simulive || false,
-                webinar_type: detailData.type?.toString() || 'past',
+                webinar_type: mappedWebinarType, // PROPERLY MAPPED TYPE
+                start_url: detailData.start_url, // START URL
+                encrypted_passcode: detailData.encrypted_passcode, // ENCRYPTED PASSCODE
+                h323_passcode: detailData.h323_passcode, // H323 PASSCODE
+                transition_to_live: detailData.transition_to_live || false,
+                creation_source: detailData.creation_source, // CREATION SOURCE
+                has_recording: recordingInfo.has_recording, // ACTUAL RECORDING STATUS
+                recording_count: recordingInfo.recording_count, // ACTUAL RECORDING COUNT
                 updated_at: new Date().toISOString(),
               }, {
                 onConflict: 'zoom_webinar_id',
@@ -584,34 +769,38 @@ serve(async (req) => {
               .single()
 
             if (!upsertError && webinarRecord) {
+              console.log(`Successfully upserted webinar with complete data: ${webinarRecord.title}`)
+              
               // Process comprehensive settings data
               await processComprehensiveWebinarData(detailData, webinarRecord.id, organization_id, supabaseClient)
               
-              // Sync additional data sources
-              progress.current_stage = 'participants'
-              await syncWebinarParticipants(zoomWebinar.id, webinarRecord.id, organization_id, accessToken, supabaseClient, progress)
-              
-              await rateLimitedDelay(progress.api_requests_made)
-              
-              progress.current_stage = 'polls'
-              await syncWebinarPolls(zoomWebinar.id, webinarRecord.id, organization_id, accessToken, supabaseClient, progress)
-              
-              await rateLimitedDelay(progress.api_requests_made)
-              
-              progress.current_stage = 'qa'
-              await syncWebinarQA(zoomWebinar.id, webinarRecord.id, organization_id, accessToken, supabaseClient, progress)
+              // Sync additional data sources (only for past webinars)
+              if (zoomWebinar.webinar_category === 'past') {
+                progress.current_stage = 'participants'
+                await syncWebinarParticipants(zoomWebinar.id, webinarRecord.id, organization_id, accessToken, supabaseClient, progress)
+                
+                await rateLimitedDelay(progress.api_requests_made)
+                
+                progress.current_stage = 'polls'
+                await syncWebinarPolls(zoomWebinar.id, webinarRecord.id, organization_id, accessToken, supabaseClient, progress)
+                
+                await rateLimitedDelay(progress.api_requests_made)
+                
+                progress.current_stage = 'qa'
+                await syncWebinarQA(zoomWebinar.id, webinarRecord.id, organization_id, accessToken, supabaseClient, progress)
+              }
               
               processedCount++
               progress.webinars_synced = processedCount
               progress.detailed_sync_count = processedCount
               
               if (processedCount % 5 === 0) {
-                console.log(`Processed ${processedCount}/${allWebinars.length} webinars comprehensively...`)
+                console.log(`ENHANCED processing: ${processedCount}/${allWebinars.length} webinars with complete data...`)
                 
                 // Update progress
                 const progressPercent = Math.min(95, 30 + Math.round((processedCount / allWebinars.length) * 60))
                 progress.current_stage = 'webinars'
-                progress.stage_message = `Comprehensively processed ${processedCount}/${allWebinars.length} webinars...`
+                progress.stage_message = `Enhanced processed ${processedCount}/${allWebinars.length} webinars with complete data...`
                 
                 await supabaseClient
                   .from('sync_jobs')
@@ -621,7 +810,11 @@ serve(async (req) => {
                   })
                   .eq('id', syncJob?.id)
               }
+            } else {
+              console.error('Failed to upsert webinar:', upsertError)
             }
+          } else {
+            console.warn(`Failed to get details for webinar ${zoomWebinar.id}: ${detailResponse.status}`)
           }
         } catch (error) {
           console.error(`Error processing webinar ${zoomWebinar.id}:`, error)
@@ -631,7 +824,7 @@ serve(async (req) => {
 
     // Final update
     progress.current_stage = 'completed'
-    progress.stage_message = 'TRUE comprehensive sync completed successfully!'
+    progress.stage_message = 'ENHANCED comprehensive sync completed successfully!'
 
     await supabaseClient
       .from('sync_jobs')
@@ -643,7 +836,7 @@ serve(async (req) => {
       })
       .eq('id', syncJob?.id)
 
-    console.log('TRUE comprehensive sync completed successfully')
+    console.log('ENHANCED comprehensive sync completed successfully')
     console.log(`Final stats: ${progress.webinars_synced} webinars, ${progress.participants_synced} participants, ${progress.polls_synced} polls, ${progress.qa_synced} Q&A sessions`)
 
     return new Response(
@@ -657,7 +850,8 @@ serve(async (req) => {
           qa_synced: progress.qa_synced,
           api_requests_made: progress.api_requests_made,
           total_found: allWebinars.length,
-          comprehensive_coverage: `${Math.round((progress.detailed_sync_count / allWebinars.length) * 100)}%`
+          comprehensive_coverage: `${Math.round((progress.detailed_sync_count / allWebinars.length) * 100)}%`,
+          enhancement: 'Complete field mapping with recordings, registrants, and participants data'
         }
       }),
       {
@@ -666,7 +860,7 @@ serve(async (req) => {
     )
 
   } catch (error) {
-    console.error('TRUE comprehensive sync error:', error)
+    console.error('ENHANCED comprehensive sync error:', error)
     
     return new Response(
       JSON.stringify({ error: error.message }),
