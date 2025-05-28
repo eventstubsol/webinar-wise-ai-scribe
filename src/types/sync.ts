@@ -26,7 +26,16 @@ export interface SyncProgress {
   stage: 'idle' | 'webinars' | 'webinar_details' | 'participants' | 'chat' | 'polls' | 'qa' | 'registrations' | 'completed' | 'error';
   message: string;
   progress: number;
-  details?: any;
+  details?: {
+    webinars_found?: number;
+    webinars_synced?: number;
+    detailed_sync_count?: number;
+    participants_synced?: number;
+    polls_synced?: number;
+    qa_synced?: number;
+    registrations_synced?: number;
+    comprehensive_coverage?: string;
+  };
   apiRequestsUsed?: number;
   estimatedTimeRemaining?: string;
 }
