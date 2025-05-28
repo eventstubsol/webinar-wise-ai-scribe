@@ -75,13 +75,13 @@ serve(async (req) => {
             accessToken
           )
 
-          // Create detailed sync job for this webinar
+          // Create detailed sync job for this webinar - FIXED: Use 'detailed_webinar_sync'
           await supabaseClient
             .from('sync_jobs')
             .insert({
               organization_id,
               user_id,
-              job_type: 'detailed_sync',
+              job_type: 'detailed_webinar_sync',
               status: 'pending',
               metadata: {
                 webinar_zoom_id: detailData.id?.toString(),

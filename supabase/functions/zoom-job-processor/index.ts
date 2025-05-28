@@ -1,4 +1,3 @@
-
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
@@ -85,7 +84,7 @@ async function processDetailedSyncJob(job: SyncJob, supabaseClient: any) {
       console.log(`❌ Participants sync error: ${error.message}`)
     }
 
-    await supabaseClient.from('sync_jobs').update({ progress: 40 }).eq('id', job.id)
+    await supabaseClient.from('sync_jobs').update({ progress: 35 }).eq('id', job.id)
     await new Promise(resolve => setTimeout(resolve, 1000))
 
     // Process registrations
@@ -113,7 +112,7 @@ async function processDetailedSyncJob(job: SyncJob, supabaseClient: any) {
       console.log(`❌ Registrations sync error: ${error.message}`)
     }
 
-    await supabaseClient.from('sync_jobs').update({ progress: 60 }).eq('id', job.id)
+    await supabaseClient.from('sync_jobs').update({ progress: 50 }).eq('id', job.id)
     await new Promise(resolve => setTimeout(resolve, 1000))
 
     // Process polls
@@ -141,7 +140,7 @@ async function processDetailedSyncJob(job: SyncJob, supabaseClient: any) {
       console.log(`❌ Polls sync error: ${error.message}`)
     }
 
-    await supabaseClient.from('sync_jobs').update({ progress: 80 }).eq('id', job.id)
+    await supabaseClient.from('sync_jobs').update({ progress: 65 }).eq('id', job.id)
     await new Promise(resolve => setTimeout(resolve, 1000))
 
     // Process Q&A
@@ -169,35 +168,33 @@ async function processDetailedSyncJob(job: SyncJob, supabaseClient: any) {
       console.log(`❌ Q&A sync error: ${error.message}`)
     }
 
-    await supabaseClient.from('sync_jobs').update({ progress: 90 }).eq('id', job.id)
+    await supabaseClient.from('sync_jobs').update({ progress: 80 }).eq('id', job.id)
     await new Promise(resolve => setTimeout(resolve, 1000))
 
-    // Process chat - only for completed webinars
+    // Process chat - for all webinars, but skip appropriately based on status
     try {
       console.log('Processing chat...')
-      if (webinar.status === 'completed') {
-        const chatResult = await supabaseClient.functions.invoke('zoom-sync-chat', {
-          body: {
-            organization_id,
-            user_id,
-            webinar_id,
-            zoom_webinar_id: webinar_zoom_id,
-          }
-        })
+      const chatResult = await supabaseClient.functions.invoke('zoom-sync-chat', {
+        body: {
+          organization_id,
+          user_id,
+          webinar_id,
+          zoom_webinar_id: webinar_zoom_id,
+        }
+      })
 
-        if (chatResult.data?.success) {
-          results.chat.success = true
-          results.chat.count = chatResult.data.messages_synced || 0
-          results.chat.skipped = chatResult.data.skipped || false
-          console.log(`✓ Chat synced: ${results.chat.count} messages`)
+      if (chatResult.data?.success) {
+        results.chat.success = true
+        results.chat.count = chatResult.data.messages_synced || 0
+        results.chat.skipped = chatResult.data.skipped || false
+        if (results.chat.skipped) {
+          console.log(`⏭️ Chat sync skipped: ${chatResult.data.reason}`)
         } else {
-          results.chat.error = chatResult.error?.message || 'Unknown error'
-          console.log(`❌ Chat sync failed: ${results.chat.error}`)
+          console.log(`✓ Chat synced: ${results.chat.count} messages`)
         }
       } else {
-        results.chat.skipped = true
-        results.chat.error = `Webinar status is '${webinar.status}' - chat only available for completed webinars`
-        console.log(`⏭️ Chat sync skipped: ${results.chat.error}`)
+        results.chat.error = chatResult.error?.message || 'Unknown error'
+        console.log(`❌ Chat sync failed: ${results.chat.error}`)
       }
     } catch (error) {
       results.chat.error = error.message
@@ -290,12 +287,12 @@ serve(async (req) => {
     // Clean up hanging jobs first
     await cleanupHangingJobs(supabaseClient)
 
-    // Get pending detailed sync jobs
+    // Get pending detailed sync jobs - FIXED: Look for 'detailed_webinar_sync' jobs
     const { data: pendingJobs, error: jobsError } = await supabaseClient
       .from('sync_jobs')
       .select('*')
       .eq('status', 'pending')
-      .eq('job_type', 'detailed_sync')
+      .eq('job_type', 'detailed_webinar_sync')
       .order('created_at', { ascending: true })
       .limit(5) // Process max 5 jobs at a time
 
@@ -303,7 +300,7 @@ serve(async (req) => {
       throw new Error(`Failed to fetch pending jobs: ${jobsError.message}`)
     }
 
-    console.log(`Found ${pendingJobs?.length || 0} pending detailed sync jobs`)
+    console.log(`Found ${pendingJobs?.length || 0} pending detailed_webinar_sync jobs`)
 
     if (!pendingJobs || pendingJobs.length === 0) {
       return new Response(
