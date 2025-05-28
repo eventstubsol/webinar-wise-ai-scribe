@@ -1,3 +1,4 @@
+
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -81,7 +82,7 @@ const ZoomConnectionCard = ({ zoomConnection, isConnected }: ZoomConnectionCardP
                   className="flex items-center space-x-2"
                 >
                   <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
-                  <span>{syncing ? 'Syncing...' : 'Sync Data'}</span>
+                  <span>{syncing ? 'Syncing...' : 'Enhanced Sync'}</span>
                 </Button>
                 
                 <Button 
@@ -113,7 +114,7 @@ const ZoomConnectionCard = ({ zoomConnection, isConnected }: ZoomConnectionCardP
                 </Badge>
                 <p className="text-sm text-gray-600 mb-6">
                   Connect your Zoom account to automatically sync webinar data, attendee information, 
-                  and engagement metrics.
+                  and engagement metrics with enhanced data quality.
                 </p>
                 <Button 
                   onClick={() => setIsWizardOpen(true)}
@@ -130,7 +131,7 @@ const ZoomConnectionCard = ({ zoomConnection, isConnected }: ZoomConnectionCardP
           <div className="pt-2 border-t">
             <div className="flex items-center space-x-2 text-xs text-gray-500">
               <AlertTriangle className="w-3 h-3" />
-              <span>Enhanced sync with job processing for reliable detailed data sync</span>
+              <span>Enhanced sync with data quality fixes and automated job processing</span>
             </div>
           </div>
         </CardContent>

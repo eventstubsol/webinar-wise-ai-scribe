@@ -2,11 +2,10 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { getZoomAccessToken } from './auth.ts'
-import { mapZoomStatusToOurs } from './status-mapper.ts'
-import { processWebinarComprehensiveData } from './data-processor.ts'
+import { processWebinarDataWithQualityFixes } from './webinar-data-processor.ts'
 import { fetchWebinarsFromZoom, getWebinarDetails } from './webinar-fetcher.ts'
 import { createSyncLog, updateSyncLog, logSyncError } from './sync-logger.ts'
-import { ZoomWebinar } from './types.ts'
+import { processWebinarComprehensiveData } from './data-processor.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -30,7 +29,7 @@ serve(async (req) => {
       throw new Error('Organization ID and User ID are required')
     }
 
-    console.log('Starting comprehensive webinar sync with panelist data for user:', user_id, 'org:', organization_id)
+    console.log('Starting enhanced webinar sync with quality fixes for user:', user_id, 'org:', organization_id)
 
     // Get access token using the new token management
     const accessToken = await getZoomAccessToken(user_id, supabaseClient)
@@ -41,68 +40,62 @@ serve(async (req) => {
     // Fetch webinars from Zoom API
     const allWebinars = await fetchWebinarsFromZoom(accessToken)
 
-    // Process and store webinars with comprehensive data including panelists
+    // Process and store webinars with quality fixes
     let processedCount = 0
     let errorCount = 0
+    let qualityFixesApplied = 0
     
     for (const zoomWebinar of allWebinars) {
       try {
-        // Get detailed webinar info including comprehensive settings
+        // Get detailed webinar info
         const detailData = await getWebinarDetails(zoomWebinar.id, accessToken)
         
-        // Map Zoom status to our status
-        const webinarStatus = mapZoomStatusToOurs(detailData)
-        
-        // Upsert main webinar data with status and new fields
-        const { data: webinarRecord, error: upsertError } = await supabaseClient
-          .from('webinars')
-          .upsert({
-            zoom_webinar_id: detailData.id?.toString(),
-            organization_id,
-            user_id,
-            title: detailData.topic,
-            host_name: detailData.host_email || zoomWebinar.host_email,
-            host_id: detailData.host_id,
-            uuid: detailData.uuid,
-            start_time: detailData.start_time || zoomWebinar.start_time,
-            duration_minutes: detailData.duration || zoomWebinar.duration,
-            registrants_count: detailData.registrants_count || 0,
-            join_url: detailData.join_url,
-            password: detailData.password,
-            encrypted_passcode: detailData.encrypted_passcode,
-            h323_passcode: detailData.h323_passcode,
-            start_url: detailData.start_url,
-            timezone: detailData.timezone,
-            agenda: detailData.agenda,
-            created_at_zoom: detailData.created_at,
-            webinar_number: detailData.id,
-            is_simulive: detailData.is_simulive || false,
-            record_file_id: detailData.record_file_id,
-            transition_to_live: detailData.transition_to_live || false,
-            creation_source: detailData.creation_source,
-            webinar_type: detailData.type?.toString() || 'past',
-            status: webinarStatus, // Set the mapped status
-            // New fields added
-            registration_url: detailData.registration_url,
-            host_email: detailData.host_email,
-            pstn_password: detailData.pstn_password,
-            updated_at: new Date().toISOString(),
-          }, {
-            onConflict: 'zoom_webinar_id',
-          })
-          .select()
-          .single()
+        // Process with quality fixes
+        const result = await processWebinarDataWithQualityFixes(
+          zoomWebinar,
+          detailData,
+          organization_id,
+          user_id,
+          supabaseClient,
+          accessToken
+        )
 
-        if (!upsertError && webinarRecord) {
-          // Process comprehensive settings data with proper error handling and panelist data
-          await processWebinarComprehensiveData(detailData, webinarRecord.id, organization_id, supabaseClient, accessToken)
+        if (result.success) {
           processedCount++
-          
+          if (result.qualityFixes) {
+            qualityFixesApplied++
+          }
+
+          // Process comprehensive settings data
+          await processWebinarComprehensiveData(
+            detailData, 
+            result.webinarRecord.id, 
+            organization_id, 
+            supabaseClient, 
+            accessToken
+          )
+
+          // Create detailed sync job for this webinar
+          await supabaseClient
+            .from('sync_jobs')
+            .insert({
+              organization_id,
+              user_id,
+              job_type: 'detailed_sync',
+              status: 'pending',
+              metadata: {
+                webinar_zoom_id: detailData.id?.toString(),
+                organization_id,
+                user_id,
+                created_by: 'enhanced_webinar_sync'
+              }
+            })
+
           if (processedCount % 10 === 0) {
-            console.log(`Processed ${processedCount} webinars with comprehensive data including panelists...`)
+            console.log(`Processed ${processedCount} webinars with quality fixes...`)
           }
         } else {
-          console.error('Error upserting webinar:', upsertError)
+          console.error('Error processing webinar:', result.error)
           errorCount++
         }
         
@@ -115,7 +108,7 @@ serve(async (req) => {
       }
     }
 
-    console.log(`Comprehensive webinar sync with panelists completed: ${processedCount} processed, ${errorCount} errors`)
+    console.log(`Enhanced webinar sync completed: ${processedCount} processed, ${qualityFixesApplied} with quality fixes, ${errorCount} errors`)
 
     // Update sync log
     if (syncLog?.id) {
@@ -127,9 +120,10 @@ serve(async (req) => {
         success: true, 
         webinars_synced: processedCount,
         total_found: allWebinars.length,
+        quality_fixes_applied: qualityFixesApplied,
         errors: errorCount,
         comprehensive_data: true,
-        panelist_data_included: true
+        detailed_jobs_created: processedCount
       }),
       {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -137,7 +131,7 @@ serve(async (req) => {
     )
 
   } catch (error) {
-    console.error('Comprehensive webinar sync with panelists error:', error)
+    console.error('Enhanced webinar sync error:', error)
     
     // Try to update sync log with error
     try {
