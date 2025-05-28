@@ -202,31 +202,62 @@ serve(async (req) => {
         if (detailResponse.ok) {
           const detailData = await detailResponse.json()
           
-          // Upsert webinar data
-          const { error: upsertError } = await supabaseClient
+          // Check if webinar already exists
+          const { data: existingWebinar } = await supabaseClient
             .from('webinars')
-            .upsert({
-              zoom_webinar_id: zoomWebinar.id,
-              organization_id,
-              user_id,
-              title: zoomWebinar.topic,
-              host_name: detailData.host_email || zoomWebinar.host_email,
-              start_time: zoomWebinar.start_time,
-              duration_minutes: zoomWebinar.duration,
-              registrants_count: detailData.registrants_count || 0,
-              updated_at: new Date().toISOString(),
-            }, {
-              onConflict: 'zoom_webinar_id,organization_id',
-            })
+            .select('id')
+            .eq('zoom_webinar_id', zoomWebinar.id)
+            .eq('organization_id', organization_id)
+            .single()
 
-          if (!upsertError) {
-            processedCount++
-            if (processedCount % 10 === 0) {
-              console.log(`Processed ${processedCount} webinars...`)
+          if (existingWebinar) {
+            // Update existing webinar
+            const { error: updateError } = await supabaseClient
+              .from('webinars')
+              .update({
+                title: zoomWebinar.topic,
+                host_name: detailData.host_email || zoomWebinar.host_email,
+                start_time: zoomWebinar.start_time,
+                duration_minutes: zoomWebinar.duration,
+                registrants_count: detailData.registrants_count || 0,
+                updated_at: new Date().toISOString(),
+              })
+              .eq('id', existingWebinar.id)
+
+            if (!updateError) {
+              processedCount++
+              if (processedCount % 10 === 0) {
+                console.log(`Updated ${processedCount} webinars...`)
+              }
+            } else {
+              console.error('Error updating webinar:', updateError)
+              errorCount++
             }
           } else {
-            console.error('Error upserting webinar:', upsertError)
-            errorCount++
+            // Insert new webinar
+            const { error: insertError } = await supabaseClient
+              .from('webinars')
+              .insert({
+                zoom_webinar_id: zoomWebinar.id,
+                organization_id,
+                user_id,
+                title: zoomWebinar.topic,
+                host_name: detailData.host_email || zoomWebinar.host_email,
+                start_time: zoomWebinar.start_time,
+                duration_minutes: zoomWebinar.duration,
+                registrants_count: detailData.registrants_count || 0,
+                updated_at: new Date().toISOString(),
+              })
+
+            if (!insertError) {
+              processedCount++
+              if (processedCount % 10 === 0) {
+                console.log(`Processed ${processedCount} webinars...`)
+              }
+            } else {
+              console.error('Error inserting webinar:', insertError)
+              errorCount++
+            }
           }
         } else {
           console.warn(`Failed to get details for webinar ${zoomWebinar.id}`)
