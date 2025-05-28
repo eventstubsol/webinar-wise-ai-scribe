@@ -66,15 +66,21 @@ serve(async (req) => {
 
     console.log('Testing connection for user:', user.id)
 
-    // Get the zoom connection with encrypted credentials
+    // Get the zoom connection with encrypted credentials - look for any connection regardless of status
     const { data: connection, error: connectionError } = await supabaseClient
       .from('zoom_connections')
       .select('*')
       .eq('user_id', user.id)
-      .single()
+      .order('created_at', { ascending: false })
+      .maybeSingle()
 
-    if (connectionError || !connection) {
-      console.error('No Zoom connection found:', connectionError)
+    if (connectionError) {
+      console.error('Database error:', connectionError)
+      throw new Error('Failed to fetch connection data')
+    }
+
+    if (!connection) {
+      console.error('No Zoom connection found for user')
       throw new Error('No Zoom connection found. Please store your credentials first.')
     }
 
@@ -129,6 +135,24 @@ serve(async (req) => {
       }
 
       console.log('Connection test successful for user:', userData.email)
+
+      // Update the connection status to active if it was pending
+      if (connection.connection_status === 'pending') {
+        const { error: updateError } = await supabaseClient
+          .from('zoom_connections')
+          .update({ 
+            connection_status: 'active',
+            zoom_user_id: userData.id || '',
+            zoom_email: userData.email || '',
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', connection.id)
+
+        if (updateError) {
+          console.error('Failed to update connection status:', updateError)
+          // Don't fail the test if we can't update, just log it
+        }
+      }
 
       return new Response(
         JSON.stringify({ 
