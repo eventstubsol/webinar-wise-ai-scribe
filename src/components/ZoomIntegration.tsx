@@ -134,10 +134,17 @@ const ZoomIntegration = () => {
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
                     <div>
-                      <h4 className="font-medium">Rate-Limited Comprehensive Sync</h4>
+                      <h4 className="font-medium">Smart Rate-Limited Sync</h4>
                       <p className="text-sm text-gray-600">
-                        Intelligent sync that respects Zoom's API limits while fetching all webinar data
+                        Intelligent sync that respects Zoom's API limits and includes comprehensive dashboard permissions
                       </p>
+                      {/* Permissions info */}
+                      <div className="mt-2 p-2 bg-blue-50 rounded text-xs text-blue-700">
+                        <div className="font-medium mb-1">Required permissions:</div>
+                        <div>• Basic webinar access</div>
+                        <div>• Dashboard analytics</div>
+                        <div>• Participant data access</div>
+                      </div>
                     </div>
                     <Button
                       onClick={syncWebinarData}
@@ -211,6 +218,9 @@ const ZoomIntegration = () => {
                   <p className="text-sm text-gray-600 mt-2">
                     Connect your Zoom account to sync comprehensive webinar data automatically
                   </p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Updated integration includes dashboard access for complete analytics
+                  </p>
                 </div>
                 <Button 
                   onClick={() => setIsWizardOpen(true)} 
@@ -245,7 +255,7 @@ const ZoomIntegration = () => {
                       <div>
                         <div className="flex items-center space-x-2">
                           <span className="font-medium">
-                            {job.job_type === 'comprehensive_rate_limited_sync' ? 'Smart Sync' : job.job_type.replace('_', ' ')}
+                            {job.job_type === 'comprehensive_rate_limited_sync' ? 'Smart Rate-Limited Sync' : job.job_type.replace('_', ' ')}
                           </span>
                           <Badge variant="outline" className={getStatusColor(job.status)}>
                             {job.status}

@@ -51,7 +51,7 @@ export const useZoomSync = () => {
     setSyncing(true);
     setSyncProgress({ 
       stage: 'webinars', 
-      message: 'Starting comprehensive sync...', 
+      message: 'Starting rate-limited comprehensive sync...', 
       progress: 5,
       apiRequestsUsed: 0
     });
@@ -83,22 +83,22 @@ export const useZoomSync = () => {
 
       if (connectionError || !connection) {
         console.error('Connection error:', connectionError);
-        throw new Error('No active Zoom connection found. Please connect your Zoom account first.');
+        throw new Error('No active Zoom connection found. Please reconnect your Zoom account with the updated permissions.');
       }
 
       console.log('Active Zoom connection found');
 
       setSyncProgress({ 
         stage: 'webinars', 
-        message: 'Starting comprehensive sync...', 
+        message: 'Starting rate-limited comprehensive sync...', 
         progress: 10,
         apiRequestsUsed: 0
       });
 
-      console.log('Calling zoom-sync-all function...');
+      console.log('Calling zoom-comprehensive-rate-limited-sync function...');
 
-      // Start comprehensive sync using the existing zoom-sync-all function
-      const syncResponse = await supabase.functions.invoke('zoom-sync-all', {
+      // Start rate-limited comprehensive sync using the new function
+      const syncResponse = await supabase.functions.invoke('zoom-comprehensive-rate-limited-sync', {
         body: { 
           organization_id: profile.organization_id,
           user_id: user.id 
@@ -113,13 +113,13 @@ export const useZoomSync = () => {
       }
 
       const result = syncResponse.data;
-      console.log('Comprehensive sync result:', result);
+      console.log('Rate-limited comprehensive sync result:', result);
 
       // Handle the response structure properly
       if (result && result.success) {
         toast({
-          title: "Comprehensive Sync Started",
-          description: "Your data sync is running. This may take several minutes for large datasets.",
+          title: "Smart Sync Started",
+          description: "Your data sync is running with intelligent rate limiting. This ensures reliable syncing while respecting API limits.",
         });
 
         // Show summary if available
@@ -127,9 +127,11 @@ export const useZoomSync = () => {
           const summary = result.summary;
           console.log('Sync summary:', summary);
           
-          // Optional: Show additional success details
           if (summary.webinars_synced !== undefined) {
             console.log(`Webinars synced: ${summary.webinars_synced}`);
+          }
+          if (summary.api_requests_made !== undefined) {
+            console.log(`API requests made: ${summary.api_requests_made}`);
           }
         }
       } else {
@@ -147,11 +149,20 @@ export const useZoomSync = () => {
       setSyncProgress({ stage: 'error', message: 'Sync failed', progress: 0 });
       setSyncing(false);
       
-      toast({
-        title: "Sync Failed",
-        description: error.message || "Failed to sync webinar data. Please check your Zoom connection and try again.",
-        variant: "destructive",
-      });
+      // Check if it's a permissions error
+      if (error.message && error.message.includes('scopes')) {
+        toast({
+          title: "Permissions Issue",
+          description: "Your Zoom connection needs updated permissions. Please reconnect your Zoom account to enable comprehensive data sync.",
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Sync Failed",
+          description: error.message || "Failed to sync webinar data. Please check your Zoom connection and try again.",
+          variant: "destructive",
+        });
+      }
 
       // Reset progress after error
       setTimeout(() => {
