@@ -653,6 +653,7 @@ export type Database = {
           audio: string | null
           audio_conference_info: string | null
           auto_recording: string | null
+          close_registration: boolean | null
           contact_email: string | null
           contact_name: string | null
           created_at: string | null
@@ -664,6 +665,7 @@ export type Database = {
           hd_video_for_attendees: boolean | null
           host_video: boolean | null
           id: string
+          language: string | null
           notify_registrants: boolean | null
           on_demand: boolean | null
           organization_id: string
@@ -675,6 +677,7 @@ export type Database = {
           registrants_email_notification: boolean | null
           registrants_restrict_number: number | null
           registration_type: number | null
+          request_permission_to_unmute: boolean | null
           send_1080p_video_to_attendees: boolean | null
           show_share_button: boolean | null
           survey_url: string | null
@@ -692,6 +695,7 @@ export type Database = {
           audio?: string | null
           audio_conference_info?: string | null
           auto_recording?: string | null
+          close_registration?: boolean | null
           contact_email?: string | null
           contact_name?: string | null
           created_at?: string | null
@@ -703,6 +707,7 @@ export type Database = {
           hd_video_for_attendees?: boolean | null
           host_video?: boolean | null
           id?: string
+          language?: string | null
           notify_registrants?: boolean | null
           on_demand?: boolean | null
           organization_id: string
@@ -714,6 +719,7 @@ export type Database = {
           registrants_email_notification?: boolean | null
           registrants_restrict_number?: number | null
           registration_type?: number | null
+          request_permission_to_unmute?: boolean | null
           send_1080p_video_to_attendees?: boolean | null
           show_share_button?: boolean | null
           survey_url?: string | null
@@ -731,6 +737,7 @@ export type Database = {
           audio?: string | null
           audio_conference_info?: string | null
           auto_recording?: string | null
+          close_registration?: boolean | null
           contact_email?: string | null
           contact_name?: string | null
           created_at?: string | null
@@ -742,6 +749,7 @@ export type Database = {
           hd_video_for_attendees?: boolean | null
           host_video?: boolean | null
           id?: string
+          language?: string | null
           notify_registrants?: boolean | null
           on_demand?: boolean | null
           organization_id?: string
@@ -753,6 +761,7 @@ export type Database = {
           registrants_email_notification?: boolean | null
           registrants_restrict_number?: number | null
           registration_type?: number | null
+          request_permission_to_unmute?: boolean | null
           send_1080p_video_to_attendees?: boolean | null
           show_share_button?: boolean | null
           survey_url?: string | null
@@ -777,6 +786,7 @@ export type Database = {
           id: string
           organization_id: string
           updated_at: string | null
+          visible: boolean | null
           webinar_id: string
         }
         Insert: {
@@ -786,6 +796,7 @@ export type Database = {
           id?: string
           organization_id: string
           updated_at?: string | null
+          visible?: boolean | null
           webinar_id: string
         }
         Update: {
@@ -795,6 +806,7 @@ export type Database = {
           id?: string
           organization_id?: string
           updated_at?: string | null
+          visible?: boolean | null
           webinar_id?: string
         }
         Relationships: [
@@ -819,6 +831,7 @@ export type Database = {
           end_time: string | null
           h323_passcode: string | null
           has_recording: boolean | null
+          host_email: string | null
           host_id: string | null
           host_name: string | null
           id: string
@@ -826,9 +839,11 @@ export type Database = {
           join_url: string | null
           organization_id: string
           password: string | null
+          pstn_password: string | null
           record_file_id: string | null
           recording_count: number | null
           registrants_count: number | null
+          registration_url: string | null
           start_time: string | null
           start_url: string | null
           status: Database["public"]["Enums"]["webinar_status"] | null
@@ -853,6 +868,7 @@ export type Database = {
           end_time?: string | null
           h323_passcode?: string | null
           has_recording?: boolean | null
+          host_email?: string | null
           host_id?: string | null
           host_name?: string | null
           id?: string
@@ -860,9 +876,11 @@ export type Database = {
           join_url?: string | null
           organization_id: string
           password?: string | null
+          pstn_password?: string | null
           record_file_id?: string | null
           recording_count?: number | null
           registrants_count?: number | null
+          registration_url?: string | null
           start_time?: string | null
           start_url?: string | null
           status?: Database["public"]["Enums"]["webinar_status"] | null
@@ -887,6 +905,7 @@ export type Database = {
           end_time?: string | null
           h323_passcode?: string | null
           has_recording?: boolean | null
+          host_email?: string | null
           host_id?: string | null
           host_name?: string | null
           id?: string
@@ -894,9 +913,11 @@ export type Database = {
           join_url?: string | null
           organization_id?: string
           password?: string | null
+          pstn_password?: string | null
           record_file_id?: string | null
           recording_count?: number | null
           registrants_count?: number | null
+          registration_url?: string | null
           start_time?: string | null
           start_url?: string | null
           status?: Database["public"]["Enums"]["webinar_status"] | null

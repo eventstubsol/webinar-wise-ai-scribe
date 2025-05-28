@@ -29,7 +29,7 @@ export async function processWebinarComprehensiveData(webinarData: any, webinar_
       }
     }
 
-    // Process settings data with proper null handling
+    // Process settings data with proper null handling and new fields
     if (webinarData.settings) {
       try {
         const settings = webinarData.settings
@@ -70,6 +70,10 @@ export async function processWebinarComprehensiveData(webinarData: any, webinar_
             add_audio_watermark: settings.add_audio_watermark || false,
             audio_conference_info: settings.audio_conference_info,
             global_dial_in_countries: settings.global_dial_in_countries,
+            // New fields added
+            close_registration: settings.close_registration || false,
+            request_permission_to_unmute: settings.request_permission_to_unmute || false,
+            language: settings.language || 'en-US',
             updated_at: new Date().toISOString()
           }, {
             onConflict: 'webinar_id'
@@ -192,7 +196,7 @@ export async function processWebinarComprehensiveData(webinarData: any, webinar_
       }
     }
 
-    // Process tracking fields
+    // Process tracking fields with new visible field
     if (webinarData.tracking_fields && webinarData.tracking_fields.length > 0) {
       try {
         // Delete existing tracking fields for this webinar
@@ -201,7 +205,7 @@ export async function processWebinarComprehensiveData(webinarData: any, webinar_
           .delete()
           .eq('webinar_id', webinar_id)
 
-        // Insert new tracking fields
+        // Insert new tracking fields with visibility
         for (const field of webinarData.tracking_fields) {
           await supabaseClient
             .from('webinar_tracking_fields')
@@ -209,7 +213,8 @@ export async function processWebinarComprehensiveData(webinarData: any, webinar_
               webinar_id,
               organization_id,
               field_name: field.field,
-              field_value: field.value
+              field_value: field.value,
+              visible: field.visible !== undefined ? field.visible : true
             })
         }
         console.log(`  - Tracking fields processed`)

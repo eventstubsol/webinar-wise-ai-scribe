@@ -53,7 +53,7 @@ serve(async (req) => {
         // Map Zoom status to our status
         const webinarStatus = mapZoomStatusToOurs(detailData)
         
-        // Upsert main webinar data with status
+        // Upsert main webinar data with status and new fields
         const { data: webinarRecord, error: upsertError } = await supabaseClient
           .from('webinars')
           .upsert({
@@ -82,6 +82,10 @@ serve(async (req) => {
             creation_source: detailData.creation_source,
             webinar_type: detailData.type?.toString() || 'past',
             status: webinarStatus, // Set the mapped status
+            // New fields added
+            registration_url: detailData.registration_url,
+            host_email: detailData.host_email,
+            pstn_password: detailData.pstn_password,
             updated_at: new Date().toISOString(),
           }, {
             onConflict: 'zoom_webinar_id',

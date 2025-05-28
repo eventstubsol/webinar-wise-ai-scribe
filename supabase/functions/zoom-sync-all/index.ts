@@ -1,4 +1,3 @@
-
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
@@ -100,7 +99,7 @@ async function processWebinarComprehensiveData(webinarData: any, webinar_id: str
         })
     }
 
-    // Process settings data
+    // Process settings data with new fields
     if (webinarData.settings) {
       const settings = webinarData.settings
       await supabaseClient
@@ -140,6 +139,10 @@ async function processWebinarComprehensiveData(webinarData: any, webinar_id: str
           add_audio_watermark: settings.add_audio_watermark,
           audio_conference_info: settings.audio_conference_info,
           global_dial_in_countries: settings.global_dial_in_countries,
+          // New fields added
+          close_registration: settings.close_registration,
+          request_permission_to_unmute: settings.request_permission_to_unmute,
+          language: settings.language,
           updated_at: new Date().toISOString()
         }, {
           onConflict: 'webinar_id'
@@ -253,7 +256,7 @@ async function processWebinarComprehensiveData(webinarData: any, webinar_id: str
       }
     }
 
-    // Process tracking fields
+    // Process tracking fields with new visible field
     if (webinarData.tracking_fields && webinarData.tracking_fields.length > 0) {
       // Delete existing tracking fields for this webinar
       await supabaseClient
@@ -261,7 +264,7 @@ async function processWebinarComprehensiveData(webinarData: any, webinar_id: str
         .delete()
         .eq('webinar_id', webinar_id)
 
-      // Insert new tracking fields
+      // Insert new tracking fields with visibility
       for (const field of webinarData.tracking_fields) {
         await supabaseClient
           .from('webinar_tracking_fields')
@@ -269,7 +272,8 @@ async function processWebinarComprehensiveData(webinarData: any, webinar_id: str
             webinar_id,
             organization_id,
             field_name: field.field,
-            field_value: field.value
+            field_value: field.value,
+            visible: field.visible !== undefined ? field.visible : true
           })
       }
     }
@@ -402,7 +406,7 @@ serve(async (req) => {
 
     console.log(`Total webinars found: ${allWebinars.length}`)
 
-    // Process webinars in batches with comprehensive data
+    // Process webinars in batches with comprehensive data including new fields
     const batchSize = 3
     let processedCount = 0
 
@@ -426,7 +430,7 @@ serve(async (req) => {
             detailedWebinar = await detailResponse.json()
           }
 
-          // Upsert comprehensive webinar data
+          // Upsert comprehensive webinar data with new fields
           const { data: webinarRecord, error: upsertError } = await supabaseClient
             .from('webinars')
             .upsert({
@@ -454,6 +458,10 @@ serve(async (req) => {
               transition_to_live: detailedWebinar.transition_to_live || false,
               creation_source: detailedWebinar.creation_source,
               webinar_type: detailedWebinar.type?.toString() || 'past',
+              // New fields added
+              registration_url: detailedWebinar.registration_url,
+              host_email: detailedWebinar.host_email,
+              pstn_password: detailedWebinar.pstn_password,
               updated_at: new Date().toISOString(),
             }, {
               onConflict: 'zoom_webinar_id',

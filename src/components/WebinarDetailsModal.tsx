@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Calendar, Clock, Users, Settings, Shield, Bell, MessageSquare } from 'lucide-react';
+import { Calendar, Clock, Users, Settings, Shield, Bell, MessageSquare, Link, Mail, Phone } from 'lucide-react';
 import { format } from 'date-fns';
 
 interface WebinarDetailsModalProps {
@@ -65,8 +65,24 @@ export const WebinarDetailsModal = ({ webinar, open, onOpenChange }: WebinarDeta
                     <p className="text-sm">{webinar.host_name || 'Unknown'}</p>
                   </div>
                   <div>
+                    <label className="text-sm font-medium text-gray-500">Host Email</label>
+                    <p className="text-sm">{webinar.host_email || 'Not specified'}</p>
+                  </div>
+                  <div>
                     <label className="text-sm font-medium text-gray-500">Webinar ID</label>
                     <p className="text-sm font-mono">{webinar.zoom_webinar_id || 'N/A'}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-500">Registration URL</label>
+                    {webinar.registration_url ? (
+                      <a href={webinar.registration_url} target="_blank" rel="noopener noreferrer" 
+                         className="text-sm text-blue-600 hover:underline flex items-center gap-1">
+                        <Link className="h-3 w-3" />
+                        Open Registration
+                      </a>
+                    ) : (
+                      <p className="text-sm text-gray-500">Not available</p>
+                    )}
                   </div>
                   <div>
                     <label className="text-sm font-medium text-gray-500">Start Time</label>
@@ -88,6 +104,15 @@ export const WebinarDetailsModal = ({ webinar, open, onOpenChange }: WebinarDeta
                       </Badge>
                     </p>
                   </div>
+                  {webinar.pstn_password && (
+                    <div>
+                      <label className="text-sm font-medium text-gray-500">PSTN Password</label>
+                      <p className="text-sm font-mono flex items-center gap-1">
+                        <Phone className="h-3 w-3" />
+                        {webinar.pstn_password}
+                      </p>
+                    </div>
+                  )}
                 </div>
                 
                 {webinar.agenda && (
@@ -194,6 +219,19 @@ export const WebinarDetailsModal = ({ webinar, open, onOpenChange }: WebinarDeta
                       <label className="text-sm font-medium text-gray-500">Practice Session</label>
                       <p className="text-sm">{webinar.settings.practice_session ? 'Enabled' : 'Disabled'}</p>
                     </div>
+                    <div>
+                      <label className="text-sm font-medium text-gray-500">Language</label>
+                      <p className="text-sm">{webinar.settings.language || 'en-US'}</p>
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium text-gray-500">Registration Status</label>
+                      <p className="text-sm">
+                        {webinar.settings.close_registration ? 
+                          <Badge variant="destructive">Closed</Badge> : 
+                          <Badge variant="default">Open</Badge>
+                        }
+                      </p>
+                    </div>
                   </div>
                   
                   <div className="mt-4 flex flex-wrap gap-2">
@@ -203,6 +241,7 @@ export const WebinarDetailsModal = ({ webinar, open, onOpenChange }: WebinarDeta
                     {webinar.settings.on_demand && <Badge variant="outline">On Demand</Badge>}
                     {webinar.settings.post_webinar_survey && <Badge variant="outline">Post-Survey</Badge>}
                     {webinar.settings.allow_multiple_devices && <Badge variant="outline">Multiple Devices</Badge>}
+                    {webinar.settings.request_permission_to_unmute && <Badge variant="outline">Permission to Unmute</Badge>}
                   </div>
                 </CardContent>
               </Card>
@@ -319,7 +358,14 @@ export const WebinarDetailsModal = ({ webinar, open, onOpenChange }: WebinarDeta
                     {webinar.tracking_fields.map((field: any, index: number) => (
                       <div key={index} className="flex justify-between items-center">
                         <span className="text-sm font-medium">{field.field_name}</span>
-                        <span className="text-sm text-gray-500">{field.field_value}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm text-gray-500">{field.field_value}</span>
+                          {field.visible !== undefined && (
+                            <Badge variant={field.visible ? "default" : "secondary"} className="text-xs">
+                              {field.visible ? "Visible" : "Hidden"}
+                            </Badge>
+                          )}
+                        </div>
                       </div>
                     ))}
                   </div>
