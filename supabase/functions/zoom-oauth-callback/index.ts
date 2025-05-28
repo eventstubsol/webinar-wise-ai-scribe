@@ -59,36 +59,47 @@ serve(async (req) => {
       throw new Error(`Failed to get user info: ${userData.message}`)
     }
 
-    // Decode the organization_id from state (base64 encoded)
-    const organizationId = state ? atob(state) : null
+    // Decode the user_id from state (base64 encoded)
+    const userId = state ? atob(state) : null
     
-    if (!organizationId) {
+    if (!userId) {
       throw new Error('Invalid state parameter')
     }
 
     // Calculate token expiry
     const expiresAt = new Date(Date.now() + (tokenData.expires_in * 1000))
 
-    // Store tokens in organization
+    // Get user's organization ID
+    const { data: profile, error: profileError } = await supabaseClient
+      .from('profiles')
+      .select('organization_id')
+      .eq('id', userId)
+      .single()
+
+    if (profileError || !profile) {
+      throw new Error('Unable to get user organization')
+    }
+
+    // Store tokens in user profile
     const { error: updateError } = await supabaseClient
-      .from('organizations')
+      .from('profiles')
       .update({
         zoom_access_token: tokenData.access_token,
         zoom_refresh_token: tokenData.refresh_token,
         zoom_token_expires_at: expiresAt.toISOString(),
-        zoom_connected_at: new Date().toISOString(),
       })
-      .eq('id', organizationId)
+      .eq('id', userId)
 
     if (updateError) {
       throw new Error(`Failed to store tokens: ${updateError.message}`)
     }
 
-    // Create zoom connection record
+    // Create/update zoom connection record for this user
     const { error: connectionError } = await supabaseClient
       .from('zoom_connections')
       .upsert({
-        organization_id: organizationId,
+        user_id: userId,
+        organization_id: profile.organization_id,
         zoom_user_id: userData.id,
         zoom_email: userData.email,
         connection_status: 'active',

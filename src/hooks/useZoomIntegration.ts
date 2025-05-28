@@ -10,6 +10,7 @@ interface ZoomConnection {
   zoom_email: string;
   connection_status: string;
   created_at: string;
+  user_id: string;
 }
 
 interface SyncLog {
@@ -41,6 +42,7 @@ export const useZoomIntegration = () => {
       const { data, error } = await supabase
         .from('zoom_connections')
         .select('*')
+        .eq('user_id', user?.id)
         .eq('connection_status', 'active')
         .order('created_at', { ascending: false })
         .limit(1)
@@ -60,6 +62,7 @@ export const useZoomIntegration = () => {
       const { data, error } = await supabase
         .from('sync_logs')
         .select('*')
+        .eq('user_id', user?.id)
         .order('started_at', { ascending: false })
         .limit(10);
 
@@ -72,24 +75,17 @@ export const useZoomIntegration = () => {
 
   const initializeZoomOAuth = async () => {
     try {
-      // Get organization ID
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('organization_id')
-        .eq('id', user?.id)
-        .single();
-
-      if (!profile) {
+      if (!user?.id) {
         toast({
           title: "Error",
-          description: "Unable to get organization information",
+          description: "User not authenticated",
           variant: "destructive",
         });
         return;
       }
 
-      // Encode organization ID in state parameter
-      const state = btoa(profile.organization_id);
+      // Encode user ID in state parameter for user-level OAuth
+      const state = btoa(user.id);
       const clientId = 'YOUR_ZOOM_CLIENT_ID'; // This should come from environment
       const redirectUri = `${window.location.origin}/functions/v1/zoom-oauth-callback`;
       
@@ -126,7 +122,7 @@ export const useZoomIntegration = () => {
     setSyncing(true);
     
     try {
-      // Get organization ID
+      // Get user's organization ID
       const { data: profile } = await supabase
         .from('profiles')
         .select('organization_id')
@@ -135,9 +131,12 @@ export const useZoomIntegration = () => {
 
       if (!profile) throw new Error('Unable to get organization information');
 
-      // Sync webinars first
+      // Sync webinars for this user
       const webinarsResponse = await supabase.functions.invoke('zoom-sync-webinars', {
-        body: { organization_id: profile.organization_id }
+        body: { 
+          organization_id: profile.organization_id,
+          user_id: user?.id 
+        }
       });
 
       if (webinarsResponse.error) {
@@ -148,9 +147,9 @@ export const useZoomIntegration = () => {
       const { data: webinars } = await supabase
         .from('webinars')
         .select('id, zoom_webinar_id')
-        .eq('organization_id', profile.organization_id)
+        .eq('user_id', user?.id)
         .order('created_at', { ascending: false })
-        .limit(5); // Sync participants for latest 5 webinars
+        .limit(5);
 
       // Sync participants for each webinar
       for (const webinar of webinars || []) {
@@ -158,6 +157,7 @@ export const useZoomIntegration = () => {
           await supabase.functions.invoke('zoom-sync-participants', {
             body: {
               organization_id: profile.organization_id,
+              user_id: user?.id,
               webinar_id: webinar.id,
               zoom_webinar_id: webinar.zoom_webinar_id,
             }
@@ -191,27 +191,20 @@ export const useZoomIntegration = () => {
         const { error } = await supabase
           .from('zoom_connections')
           .update({ connection_status: 'revoked' })
-          .eq('id', zoomConnection.id);
+          .eq('id', zoomConnection.id)
+          .eq('user_id', user?.id);
 
         if (error) throw error;
 
-        // Clear tokens from organization
-        const { data: profile } = await supabase
+        // Clear tokens from user profile
+        await supabase
           .from('profiles')
-          .select('organization_id')
-          .eq('id', user?.id)
-          .single();
-
-        if (profile) {
-          await supabase
-            .from('organizations')
-            .update({
-              zoom_access_token: null,
-              zoom_refresh_token: null,
-              zoom_token_expires_at: null,
-            })
-            .eq('id', profile.organization_id);
-        }
+          .update({
+            zoom_access_token: null,
+            zoom_refresh_token: null,
+            zoom_token_expires_at: null,
+          })
+          .eq('id', user?.id);
 
         setZoomConnection(null);
         

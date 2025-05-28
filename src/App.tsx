@@ -7,6 +7,8 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/hooks/useAuth";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import Index from "./pages/Index";
+import AccountDashboard from "./pages/AccountDashboard";
+import WebinarsPage from "./pages/WebinarsPage";
 import Auth from "./pages/Auth";
 import NotFound from "./pages/NotFound";
 
@@ -24,6 +26,16 @@ const App = () => (
             <Route path="/" element={
               <ProtectedRoute>
                 <Index />
+              </ProtectedRoute>
+            } />
+            <Route path="/account" element={
+              <ProtectedRoute>
+                <AccountDashboard />
+              </ProtectedRoute>
+            } />
+            <Route path="/webinars" element={
+              <ProtectedRoute>
+                <WebinarsPage />
               </ProtectedRoute>
             } />
             <Route path="*" element={<NotFound />} />

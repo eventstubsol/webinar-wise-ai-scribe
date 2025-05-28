@@ -8,19 +8,25 @@ import {
   Settings, 
   Download,
   TrendingUp,
-  PieChart
+  PieChart,
+  User
 } from "lucide-react";
+import { useLocation, useNavigate } from "react-router-dom";
 
 const Sidebar = () => {
+  const location = useLocation();
+  const navigate = useNavigate();
+
   const menuItems = [
-    { icon: BarChart3, label: "Dashboard", active: true },
-    { icon: Calendar, label: "Webinars", active: false },
-    { icon: Users, label: "Attendees", active: false },
-    { icon: MessageSquare, label: "Engagement", active: false },
-    { icon: TrendingUp, label: "Analytics", active: false },
-    { icon: PieChart, label: "Reports", active: false },
-    { icon: Download, label: "Exports", active: false },
-    { icon: Settings, label: "Settings", active: false }
+    { icon: BarChart3, label: "Dashboard", path: "/", active: location.pathname === "/" },
+    { icon: Calendar, label: "Webinars", path: "/webinars", active: location.pathname === "/webinars" },
+    { icon: Users, label: "Attendees", path: "/", active: false },
+    { icon: MessageSquare, label: "Engagement", path: "/", active: false },
+    { icon: TrendingUp, label: "Analytics", path: "/", active: false },
+    { icon: PieChart, label: "Reports", path: "/", active: false },
+    { icon: Download, label: "Exports", path: "/", active: false },
+    { icon: User, label: "Account", path: "/account", active: location.pathname === "/account" },
+    { icon: Settings, label: "Settings", path: "/", active: false }
   ];
 
   return (
@@ -35,6 +41,7 @@ const Sidebar = () => {
                 ? "bg-gradient-to-r from-blue-600 to-purple-600 text-white" 
                 : "text-gray-700 hover:bg-gray-100"
             }`}
+            onClick={() => navigate(item.path)}
           >
             <item.icon className="w-4 h-4 mr-3" />
             {item.label}

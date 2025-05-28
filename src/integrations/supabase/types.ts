@@ -167,6 +167,9 @@ export type Database = {
           organization_id: string
           role: Database["public"]["Enums"]["user_role"]
           updated_at: string
+          zoom_access_token: string | null
+          zoom_refresh_token: string | null
+          zoom_token_expires_at: string | null
         }
         Insert: {
           created_at?: string
@@ -177,6 +180,9 @@ export type Database = {
           organization_id: string
           role?: Database["public"]["Enums"]["user_role"]
           updated_at?: string
+          zoom_access_token?: string | null
+          zoom_refresh_token?: string | null
+          zoom_token_expires_at?: string | null
         }
         Update: {
           created_at?: string
@@ -187,6 +193,9 @@ export type Database = {
           organization_id?: string
           role?: Database["public"]["Enums"]["user_role"]
           updated_at?: string
+          zoom_access_token?: string | null
+          zoom_refresh_token?: string | null
+          zoom_token_expires_at?: string | null
         }
         Relationships: [
           {
@@ -208,6 +217,7 @@ export type Database = {
           started_at: string
           status: string
           sync_type: string
+          user_id: string | null
           webinar_id: string | null
         }
         Insert: {
@@ -219,6 +229,7 @@ export type Database = {
           started_at?: string
           status: string
           sync_type: string
+          user_id?: string | null
           webinar_id?: string | null
         }
         Update: {
@@ -230,6 +241,7 @@ export type Database = {
           started_at?: string
           status?: string
           sync_type?: string
+          user_id?: string | null
           webinar_id?: string | null
         }
         Relationships: [
@@ -262,6 +274,7 @@ export type Database = {
           start_time: string | null
           title: string
           updated_at: string
+          user_id: string | null
           zoom_webinar_id: string | null
         }
         Insert: {
@@ -276,6 +289,7 @@ export type Database = {
           start_time?: string | null
           title: string
           updated_at?: string
+          user_id?: string | null
           zoom_webinar_id?: string | null
         }
         Update: {
@@ -290,6 +304,7 @@ export type Database = {
           start_time?: string | null
           title?: string
           updated_at?: string
+          user_id?: string | null
           zoom_webinar_id?: string | null
         }
         Relationships: [
@@ -368,6 +383,7 @@ export type Database = {
           organization_id: string
           permissions: Json | null
           updated_at: string
+          user_id: string | null
           zoom_email: string
           zoom_user_id: string
         }
@@ -378,6 +394,7 @@ export type Database = {
           organization_id: string
           permissions?: Json | null
           updated_at?: string
+          user_id?: string | null
           zoom_email: string
           zoom_user_id: string
         }
@@ -388,6 +405,7 @@ export type Database = {
           organization_id?: string
           permissions?: Json | null
           updated_at?: string
+          user_id?: string | null
           zoom_email?: string
           zoom_user_id?: string
         }
