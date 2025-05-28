@@ -58,14 +58,19 @@ serve(async (req) => {
     )
 
     if (authError || !user) {
+      console.error('Auth error:', authError)
       throw new Error('Invalid authentication')
     }
+
+    console.log('Authenticated user:', user.id)
 
     const { clientId, clientSecret, accountId } = await req.json()
     
     if (!clientId || !clientSecret || !accountId) {
       throw new Error('All credentials are required')
     }
+
+    console.log('Received credentials for user:', user.id)
 
     // Get user's organization
     const { data: profile, error: profileError } = await supabaseClient
@@ -75,8 +80,11 @@ serve(async (req) => {
       .single()
 
     if (profileError || !profile) {
+      console.error('Profile error:', profileError)
       throw new Error('Unable to get user organization')
     }
+
+    console.log('Found organization:', profile.organization_id)
 
     // Use a combination of user ID and a server secret as encryption key
     const encryptionKey = `${user.id}-${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')?.slice(0, 32)}`
@@ -86,10 +94,12 @@ serve(async (req) => {
     const encryptedClientSecret = await encryptCredential(clientSecret, encryptionKey)
     const encryptedAccountId = await encryptCredential(accountId, encryptionKey)
 
-    // Store or update the zoom connection with encrypted credentials
-    const { error: upsertError } = await supabaseClient
+    console.log('Credentials encrypted successfully')
+
+    // Store or update the zoom connection with encrypted credentials using proper upsert
+    const { data: upsertData, error: upsertError } = await supabaseClient
       .from('zoom_connections')
-      .insert({
+      .upsert({
         user_id: user.id,
         organization_id: profile.organization_id,
         encrypted_client_id: encryptedClientId,
@@ -100,19 +110,12 @@ serve(async (req) => {
         zoom_user_id: '',
         zoom_email: '',
         updated_at: new Date().toISOString(),
-      })
-      .onConflict('user_id')
-      .update({
-        encrypted_client_id: encryptedClientId,
-        encrypted_client_secret: encryptedClientSecret,
-        encrypted_account_id: encryptedAccountId,
-        credentials_stored_at: new Date().toISOString(),
-        connection_status: 'pending',
-        updated_at: new Date().toISOString(),
+      }, {
+        onConflict: 'user_id'
       })
 
     if (upsertError) {
-      console.error('Error storing credentials:', upsertError)
+      console.error('Upsert error:', upsertError)
       throw new Error(`Failed to store credentials: ${upsertError.message}`)
     }
 
@@ -130,7 +133,10 @@ serve(async (req) => {
     console.error('Store credentials error:', error)
     
     return new Response(
-      JSON.stringify({ error: error.message }),
+      JSON.stringify({ 
+        error: error.message,
+        details: 'Check the function logs for more information'
+      }),
       {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
