@@ -7,6 +7,34 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
+// Simple decryption function using built-in Web Crypto API
+async function decryptCredential(encryptedText: string, key: string): Promise<string> {
+  const encoder = new TextEncoder()
+  const decoder = new TextDecoder()
+  const keyData = encoder.encode(key.slice(0, 32).padEnd(32, '0'))
+  
+  const cryptoKey = await crypto.subtle.importKey(
+    'raw',
+    keyData,
+    { name: 'AES-GCM' },
+    false,
+    ['decrypt']
+  )
+  
+  // Decode base64 and extract IV and encrypted data
+  const combined = new Uint8Array(atob(encryptedText).split('').map(c => c.charCodeAt(0)))
+  const iv = combined.slice(0, 12)
+  const encrypted = combined.slice(12)
+  
+  const decrypted = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv },
+    cryptoKey,
+    encrypted
+  )
+  
+  return decoder.decode(decrypted)
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -18,22 +46,42 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     )
 
-    const { user_id } = await req.json()
-    
-    if (!user_id) {
-      throw new Error('User ID is required')
+    // Get the user from the JWT token
+    const authHeader = req.headers.get('Authorization')
+    if (!authHeader) {
+      throw new Error('No authorization header')
     }
 
-    // Get Zoom credentials from environment
-    const clientId = Deno.env.get('ZOOM_CLIENT_ID')
-    const accountId = Deno.env.get('ZOOM_ACCOUNT_ID')
-    
-    if (!clientId || !accountId) {
-      throw new Error('Zoom credentials not configured')
+    const { data: { user }, error: authError } = await supabaseClient.auth.getUser(
+      authHeader.replace('Bearer ', '')
+    )
+
+    if (authError || !user) {
+      throw new Error('Invalid authentication')
     }
+
+    // Get user's stored Zoom credentials
+    const { data: connection, error: connectionError } = await supabaseClient
+      .from('zoom_connections')
+      .select('encrypted_client_id, encrypted_account_id')
+      .eq('user_id', user.id)
+      .maybeSingle()
+
+    if (connectionError) {
+      throw new Error(`Failed to get connection: ${connectionError.message}`)
+    }
+
+    if (!connection || !connection.encrypted_client_id || !connection.encrypted_account_id) {
+      throw new Error('No stored credentials found. Please store your Zoom credentials first.')
+    }
+
+    // Decrypt the credentials
+    const encryptionKey = `${user.id}-${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')?.slice(0, 32)}`
+    const clientId = await decryptCredential(connection.encrypted_client_id, encryptionKey)
+    const accountId = await decryptCredential(connection.encrypted_account_id, encryptionKey)
 
     // Encode user ID in state parameter
-    const state = btoa(user_id)
+    const state = btoa(user.id)
     const redirectUri = `${Deno.env.get('SUPABASE_URL')}/functions/v1/zoom-oauth-callback`
     
     const scope = 'webinar:read:admin meeting:read:admin user:read:admin'
@@ -45,7 +93,7 @@ serve(async (req) => {
       `scope=${encodeURIComponent(scope)}&` +
       `state=${state}`
 
-    console.log('Generated OAuth URL for user:', user_id)
+    console.log('Generated OAuth URL for user:', user.id)
 
     return new Response(
       JSON.stringify({ auth_url: authUrl }),

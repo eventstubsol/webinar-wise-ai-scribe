@@ -379,6 +379,10 @@ export type Database = {
         Row: {
           connection_status: string
           created_at: string
+          credentials_stored_at: string | null
+          encrypted_account_id: string | null
+          encrypted_client_id: string | null
+          encrypted_client_secret: string | null
           id: string
           organization_id: string
           permissions: Json | null
@@ -390,6 +394,10 @@ export type Database = {
         Insert: {
           connection_status?: string
           created_at?: string
+          credentials_stored_at?: string | null
+          encrypted_account_id?: string | null
+          encrypted_client_id?: string | null
+          encrypted_client_secret?: string | null
           id?: string
           organization_id: string
           permissions?: Json | null
@@ -401,6 +409,10 @@ export type Database = {
         Update: {
           connection_status?: string
           created_at?: string
+          credentials_stored_at?: string | null
+          encrypted_account_id?: string | null
+          encrypted_client_id?: string | null
+          encrypted_client_secret?: string | null
           id?: string
           organization_id?: string
           permissions?: Json | null

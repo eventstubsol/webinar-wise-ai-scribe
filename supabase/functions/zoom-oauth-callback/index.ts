@@ -7,6 +7,34 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
+// Simple decryption function using built-in Web Crypto API
+async function decryptCredential(encryptedText: string, key: string): Promise<string> {
+  const encoder = new TextEncoder()
+  const decoder = new TextDecoder()
+  const keyData = encoder.encode(key.slice(0, 32).padEnd(32, '0'))
+  
+  const cryptoKey = await crypto.subtle.importKey(
+    'raw',
+    keyData,
+    { name: 'AES-GCM' },
+    false,
+    ['decrypt']
+  )
+  
+  // Decode base64 and extract IV and encrypted data
+  const combined = new Uint8Array(atob(encryptedText).split('').map(c => c.charCodeAt(0)))
+  const iv = combined.slice(0, 12)
+  const encrypted = combined.slice(12)
+  
+  const decrypted = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv },
+    cryptoKey,
+    encrypted
+  )
+  
+  return decoder.decode(decrypted)
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -26,13 +54,28 @@ serve(async (req) => {
       throw new Error('Authorization code not provided')
     }
 
-    // Get Zoom credentials from environment
-    const clientId = Deno.env.get('ZOOM_CLIENT_ID')
-    const clientSecret = Deno.env.get('ZOOM_CLIENT_SECRET')
+    // Decode the user_id from state (base64 encoded)
+    const userId = state ? atob(state) : null
     
-    if (!clientId || !clientSecret) {
-      throw new Error('Zoom credentials not configured')
+    if (!userId) {
+      throw new Error('Invalid state parameter')
     }
+
+    // Get user's stored Zoom credentials
+    const { data: connection, error: connectionError } = await supabaseClient
+      .from('zoom_connections')
+      .select('encrypted_client_id, encrypted_client_secret, organization_id')
+      .eq('user_id', userId)
+      .single()
+
+    if (connectionError || !connection) {
+      throw new Error('No stored credentials found')
+    }
+
+    // Decrypt the credentials
+    const encryptionKey = `${userId}-${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')?.slice(0, 32)}`
+    const clientId = await decryptCredential(connection.encrypted_client_id, encryptionKey)
+    const clientSecret = await decryptCredential(connection.encrypted_client_secret, encryptionKey)
 
     // Exchange authorization code for access token
     const tokenResponse = await fetch('https://zoom.us/oauth/token', {
@@ -69,27 +112,8 @@ serve(async (req) => {
       throw new Error(`Failed to get user info: ${userData.message}`)
     }
 
-    // Decode the user_id from state (base64 encoded)
-    const userId = state ? atob(state) : null
-    
-    if (!userId) {
-      throw new Error('Invalid state parameter')
-    }
-
     // Calculate token expiry
     const expiresAt = new Date(Date.now() + (tokenData.expires_in * 1000))
-
-    // Get user's organization ID
-    const { data: profile, error: profileError } = await supabaseClient
-      .from('profiles')
-      .select('organization_id')
-      .eq('id', userId)
-      .single()
-
-    if (profileError || !profile) {
-      console.error('Failed to get user profile:', profileError)
-      throw new Error('Unable to get user organization')
-    }
 
     // Store tokens in user profile
     const { error: updateError } = await supabaseClient
@@ -106,21 +130,20 @@ serve(async (req) => {
       throw new Error(`Failed to store tokens: ${updateError.message}`)
     }
 
-    // Create/update zoom connection record for this user
-    const { error: connectionError } = await supabaseClient
+    // Update zoom connection record with connection details
+    const { error: connectionUpdateError } = await supabaseClient
       .from('zoom_connections')
-      .upsert({
-        user_id: userId,
-        organization_id: profile.organization_id,
+      .update({
         zoom_user_id: userData.id,
         zoom_email: userData.email,
         connection_status: 'active',
         permissions: { scope: tokenData.scope },
         updated_at: new Date().toISOString(),
       })
+      .eq('user_id', userId)
 
-    if (connectionError) {
-      console.error('Failed to create connection record:', connectionError)
+    if (connectionUpdateError) {
+      console.error('Failed to update connection record:', connectionUpdateError)
     }
 
     console.log('Successfully connected Zoom for user:', userId)

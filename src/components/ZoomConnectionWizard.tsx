@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -23,6 +24,7 @@ import { Progress } from '@/components/ui/progress';
 import { CheckCircle, Link2, Loader2, ArrowRight, ArrowLeft, ExternalLink } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { useZoomIntegration } from '@/hooks/useZoomIntegration';
+import { supabase } from '@/integrations/supabase/client';
 
 const credentialsSchema = z.object({
   clientId: z.string().min(1, 'Client ID is required'),
@@ -80,16 +82,20 @@ const ZoomConnectionWizard = ({ isOpen, onClose, onSuccess }: ZoomConnectionWiza
     setCurrentStep('connecting');
     
     try {
-      // Store credentials in Supabase secrets and initiate OAuth
-      const response = await fetch('/api/zoom/store-credentials', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(data),
+      // Store credentials using the new edge function
+      const { data: storeResponse, error: storeError } = await supabase.functions.invoke('zoom-store-credentials', {
+        body: {
+          clientId: data.clientId,
+          clientSecret: data.clientSecret,
+          accountId: data.accountId,
+        }
       });
 
-      if (!response.ok) {
+      if (storeError) {
+        throw new Error(storeError.message);
+      }
+
+      if (!storeResponse?.success) {
         throw new Error('Failed to store credentials');
       }
 
@@ -103,7 +109,7 @@ const ZoomConnectionWizard = ({ isOpen, onClose, onSuccess }: ZoomConnectionWiza
       
       toast({
         title: "Connection Successful",
-        description: "Your Zoom account has been connected successfully.",
+        description: "Your Zoom credentials have been stored and connection initiated.",
       });
       
       // Auto-redirect after 3 seconds
@@ -116,7 +122,7 @@ const ZoomConnectionWizard = ({ isOpen, onClose, onSuccess }: ZoomConnectionWiza
       console.error('Connection error:', error);
       toast({
         title: "Connection Failed",
-        description: "Failed to connect to Zoom. Please check your credentials and try again.",
+        description: error instanceof Error ? error.message : "Failed to connect to Zoom. Please check your credentials and try again.",
         variant: "destructive",
       });
       setCurrentStep('credentials');
@@ -157,10 +163,10 @@ const ZoomConnectionWizard = ({ isOpen, onClose, onSuccess }: ZoomConnectionWiza
                 </ul>
               </div>
             </div>
-            <div className="bg-yellow-50 p-3 rounded-lg text-left">
-              <p className="text-sm text-yellow-800">
-                <strong>Required:</strong> You'll need your Zoom API credentials (Client ID, Client Secret, and Account ID) 
-                from your Zoom Marketplace app.
+            <div className="bg-blue-50 p-3 rounded-lg text-left">
+              <p className="text-sm text-blue-800">
+                <strong>One-time setup:</strong> Your API credentials will be securely encrypted and stored 
+                for future use. You'll only need to enter them once.
               </p>
             </div>
           </div>
@@ -172,7 +178,7 @@ const ZoomConnectionWizard = ({ isOpen, onClose, onSuccess }: ZoomConnectionWiza
             <div className="text-center">
               <h3 className="text-lg font-semibold mb-2">Enter API Credentials</h3>
               <p className="text-gray-600">
-                Enter your Zoom API credentials to establish the connection.
+                Enter your Zoom API credentials. They will be securely encrypted and stored.
               </p>
             </div>
             
@@ -257,17 +263,17 @@ const ZoomConnectionWizard = ({ isOpen, onClose, onSuccess }: ZoomConnectionWiza
             <div>
               <h3 className="text-lg font-semibold mb-2">Connecting to Zoom</h3>
               <p className="text-gray-600">
-                We're validating your credentials and setting up the connection...
+                We're securely storing your credentials and setting up the connection...
               </p>
             </div>
             <div className="space-y-2">
               <div className="flex items-center justify-center space-x-2 text-sm text-gray-600">
                 <div className="w-2 h-2 bg-blue-600 rounded-full animate-pulse" />
-                <span>Validating credentials</span>
+                <span>Encrypting and storing credentials</span>
               </div>
               <div className="flex items-center justify-center space-x-2 text-sm text-gray-600">
                 <div className="w-2 h-2 bg-gray-300 rounded-full" />
-                <span>Establishing connection</span>
+                <span>Establishing OAuth connection</span>
               </div>
             </div>
           </div>
@@ -282,7 +288,8 @@ const ZoomConnectionWizard = ({ isOpen, onClose, onSuccess }: ZoomConnectionWiza
             <div>
               <h3 className="text-lg font-semibold mb-2">Successfully Connected!</h3>
               <p className="text-gray-600 mb-4">
-                Your Zoom account has been connected successfully. You can now sync your webinar data.
+                Your Zoom credentials have been securely stored and your account is now connected. 
+                You can now sync your webinar data.
               </p>
               <Badge variant="secondary" className="bg-green-100 text-green-800">
                 Connection Active
@@ -330,10 +337,10 @@ const ZoomConnectionWizard = ({ isOpen, onClose, onSuccess }: ZoomConnectionWiza
               {isLoading ? (
                 <>
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Connecting...
+                  Storing...
                 </>
               ) : (
-                'Connect to Zoom'
+                'Store & Connect'
               )}
             </Button>
           </div>

@@ -11,6 +11,7 @@ interface ZoomConnection {
   connection_status: string;
   created_at: string;
   user_id: string;
+  credentials_stored_at?: string;
 }
 
 export const useZoomConnection = () => {
@@ -30,7 +31,6 @@ export const useZoomConnection = () => {
         .from('zoom_connections')
         .select('*')
         .eq('user_id', user?.id)
-        .eq('connection_status', 'active')
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -55,9 +55,7 @@ export const useZoomConnection = () => {
         return;
       }
 
-      const { data, error } = await supabase.functions.invoke('zoom-oauth-initiate', {
-        body: { user_id: user.id }
-      });
+      const { data, error } = await supabase.functions.invoke('zoom-oauth-initiate');
 
       if (error) {
         throw new Error(error.message);
@@ -118,7 +116,7 @@ export const useZoomConnection = () => {
   return {
     zoomConnection,
     loading,
-    isConnected: !!zoomConnection,
+    isConnected: !!zoomConnection && zoomConnection.connection_status === 'active',
     initializeZoomOAuth,
     disconnectZoom,
     refreshConnection: fetchZoomConnection,
