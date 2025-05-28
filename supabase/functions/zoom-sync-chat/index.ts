@@ -102,6 +102,33 @@ serve(async (req) => {
 
     console.log('Starting chat sync for webinar:', zoom_webinar_id)
 
+    // Check if webinar is completed (chat data only available for completed webinars)
+    const { data: webinar, error: webinarError } = await supabaseClient
+      .from('webinars')
+      .select('status, start_time, title')
+      .eq('id', webinar_id)
+      .single()
+
+    if (webinarError || !webinar) {
+      throw new Error('Webinar not found')
+    }
+
+    if (webinar.status !== 'completed') {
+      console.log(`Skipping chat sync for webinar ${zoom_webinar_id} - status: ${webinar.status}. Chat data only available for completed webinars.`)
+      return new Response(
+        JSON.stringify({ 
+          success: true, 
+          messages_synced: 0,
+          total_found: 0,
+          skipped: true,
+          reason: `Webinar status is '${webinar.status}' - chat data only available for completed webinars`
+        }),
+        {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
+      )
+    }
+
     const accessToken = await getZoomAccessToken(user_id, supabaseClient)
 
     // Log sync start
@@ -117,48 +144,78 @@ serve(async (req) => {
       .select()
       .single()
 
-    // Fetch chat messages from Zoom API
+    // Try multiple chat API endpoints as Zoom's API documentation varies
+    const chatEndpoints = [
+      `/meetings/${zoom_webinar_id}/events?type=chat`,
+      `/webinars/${zoom_webinar_id}/events?type=chat`, 
+      `/metrics/webinars/${zoom_webinar_id}/participants/chatmessages`,
+      `/webinars/${zoom_webinar_id}/chatmessages`
+    ]
+
     let allMessages: ZoomChatMessage[] = []
-    let nextPageToken = ''
-    let pageCount = 0
-    
-    do {
-      pageCount++
-      console.log(`Fetching page ${pageCount} of chat messages...`)
-      
-      const params = new URLSearchParams({
-        page_size: '300',
-      })
-      
-      if (nextPageToken) {
-        params.append('next_page_token', nextPageToken)
+    let successfulEndpoint = null
+
+    for (const endpoint of chatEndpoints) {
+      try {
+        console.log(`Trying chat endpoint: ${endpoint}`)
+        
+        let nextPageToken = ''
+        let pageCount = 0
+        let endpointMessages: ZoomChatMessage[] = []
+        
+        do {
+          pageCount++
+          console.log(`Fetching page ${pageCount} from endpoint ${endpoint}...`)
+          
+          const params = new URLSearchParams({
+            page_size: '300',
+          })
+          
+          if (nextPageToken) {
+            params.append('next_page_token', nextPageToken)
+          }
+
+          const response = await fetch(`https://api.zoom.us/v2${endpoint}?${params}`, {
+            headers: {
+              'Authorization': `Bearer ${accessToken}`,
+              'Content-Type': 'application/json',
+            },
+          })
+
+          const data = await response.json()
+          
+          if (!response.ok) {
+            console.log(`Endpoint ${endpoint} failed:`, data.message || data.error)
+            break // Try next endpoint
+          }
+
+          // Handle different response structures
+          const messages = data.chat_messages || data.events || data.messages || []
+          endpointMessages = endpointMessages.concat(messages)
+          nextPageToken = data.next_page_token || ''
+          
+          console.log(`Page ${pageCount} from ${endpoint}: Found ${messages.length} messages`)
+          
+          await new Promise(resolve => setTimeout(resolve, 100))
+          
+        } while (nextPageToken && pageCount < 10)
+
+        if (endpointMessages.length > 0) {
+          allMessages = endpointMessages
+          successfulEndpoint = endpoint
+          console.log(`Successfully found ${allMessages.length} messages using endpoint: ${endpoint}`)
+          break
+        } else {
+          console.log(`No messages found with endpoint: ${endpoint}`)
+        }
+        
+      } catch (error) {
+        console.log(`Error with endpoint ${endpoint}:`, error.message)
+        continue
       }
+    }
 
-      const response = await fetch(`https://api.zoom.us/v2/metrics/webinars/${zoom_webinar_id}/participants/chatmessages?${params}`, {
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
-        },
-      })
-
-      const data = await response.json()
-      
-      if (!response.ok) {
-        console.error('Zoom API error:', data)
-        throw new Error(`Zoom API error: ${data.message || data.error}`)
-      }
-
-      const messages = data.chat_messages || []
-      allMessages = allMessages.concat(messages)
-      nextPageToken = data.next_page_token || ''
-      
-      console.log(`Page ${pageCount}: Found ${messages.length} chat messages`)
-      
-      await new Promise(resolve => setTimeout(resolve, 100))
-      
-    } while (nextPageToken && pageCount < 10)
-
-    console.log(`Total chat messages found: ${allMessages.length}`)
+    console.log(`Total chat messages found: ${allMessages.length} using endpoint: ${successfulEndpoint}`)
 
     // Store chat messages
     let processedCount = 0
@@ -166,14 +223,19 @@ serve(async (req) => {
     
     for (const message of allMessages) {
       try {
+        // Handle different message structures from different endpoints
+        const messageContent = message.content || message.message || message.text || ''
+        const senderName = message.sender || message.user_name || message.from || 'Unknown'
+        const timestamp = message.timestamp || message.time || new Date().toISOString()
+
         const { error: upsertError } = await supabaseClient
           .from('zoom_chat_messages')
           .upsert({
             webinar_id,
             organization_id,
-            sender_name: message.sender,
-            message: message.content,
-            timestamp: message.timestamp,
+            sender_name: senderName,
+            message: messageContent,
+            timestamp: timestamp,
             message_type: 'chat',
             updated_at: new Date().toISOString(),
           }, {
@@ -214,7 +276,9 @@ serve(async (req) => {
         success: true, 
         messages_synced: processedCount,
         total_found: allMessages.length,
-        errors: errorCount
+        errors: errorCount,
+        endpoint_used: successfulEndpoint,
+        webinar_status: webinar.status
       }),
       {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -225,7 +289,10 @@ serve(async (req) => {
     console.error('Chat sync error:', error)
     
     return new Response(
-      JSON.stringify({ error: error.message }),
+      JSON.stringify({ 
+        error: error.message,
+        success: false 
+      }),
       {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },

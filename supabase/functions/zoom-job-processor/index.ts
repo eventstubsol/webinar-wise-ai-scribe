@@ -37,10 +37,10 @@ async function processDetailedSyncJob(job: SyncJob, supabaseClient: any) {
       })
       .eq('id', job.id)
 
-    // Get webinar record to get the internal webinar_id
+    // Get webinar record to get the internal webinar_id and check status
     const { data: webinar, error: webinarError } = await supabaseClient
       .from('webinars')
-      .select('id')
+      .select('id, status, start_time, title')
       .eq('zoom_webinar_id', webinar_zoom_id)
       .eq('organization_id', organization_id)
       .single()
@@ -55,14 +55,10 @@ async function processDetailedSyncJob(job: SyncJob, supabaseClient: any) {
       registrations: { success: false, count: 0, error: null },
       polls: { success: false, count: 0, error: null },
       qa: { success: false, count: 0, error: null },
-      chat: { success: false, count: 0, error: null }
+      chat: { success: false, count: 0, error: null, skipped: false }
     }
 
-    // Update progress
-    await supabaseClient
-      .from('sync_jobs')
-      .update({ progress: 20 })
-      .eq('id', job.id)
+    await supabaseClient.from('sync_jobs').update({ progress: 20 }).eq('id', job.id)
 
     // Process participants
     try {
@@ -176,25 +172,32 @@ async function processDetailedSyncJob(job: SyncJob, supabaseClient: any) {
     await supabaseClient.from('sync_jobs').update({ progress: 90 }).eq('id', job.id)
     await new Promise(resolve => setTimeout(resolve, 1000))
 
-    // Process chat
+    // Process chat - only for completed webinars
     try {
       console.log('Processing chat...')
-      const chatResult = await supabaseClient.functions.invoke('zoom-sync-chat', {
-        body: {
-          organization_id,
-          user_id,
-          webinar_id,
-          zoom_webinar_id: webinar_zoom_id,
-        }
-      })
+      if (webinar.status === 'completed') {
+        const chatResult = await supabaseClient.functions.invoke('zoom-sync-chat', {
+          body: {
+            organization_id,
+            user_id,
+            webinar_id,
+            zoom_webinar_id: webinar_zoom_id,
+          }
+        })
 
-      if (chatResult.data?.success) {
-        results.chat.success = true
-        results.chat.count = chatResult.data.messages_synced || 0
-        console.log(`✓ Chat synced: ${results.chat.count}`)
+        if (chatResult.data?.success) {
+          results.chat.success = true
+          results.chat.count = chatResult.data.messages_synced || 0
+          results.chat.skipped = chatResult.data.skipped || false
+          console.log(`✓ Chat synced: ${results.chat.count} messages`)
+        } else {
+          results.chat.error = chatResult.error?.message || 'Unknown error'
+          console.log(`❌ Chat sync failed: ${results.chat.error}`)
+        }
       } else {
-        results.chat.error = chatResult.error?.message || 'Unknown error'
-        console.log(`❌ Chat sync failed: ${results.chat.error}`)
+        results.chat.skipped = true
+        results.chat.error = `Webinar status is '${webinar.status}' - chat only available for completed webinars`
+        console.log(`⏭️ Chat sync skipped: ${results.chat.error}`)
       }
     } catch (error) {
       results.chat.error = error.message
@@ -219,7 +222,8 @@ async function processDetailedSyncJob(job: SyncJob, supabaseClient: any) {
         metadata: {
           ...job.metadata,
           results,
-          completed_at: new Date().toISOString()
+          completed_at: new Date().toISOString(),
+          webinar_status: webinar.status
         }
       })
       .eq('id', job.id)
@@ -244,6 +248,30 @@ async function processDetailedSyncJob(job: SyncJob, supabaseClient: any) {
   }
 }
 
+async function cleanupHangingJobs(supabaseClient: any) {
+  // Find jobs that have been "started" for more than 30 minutes
+  const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString()
+  
+  const { data: hangingJobs, error } = await supabaseClient
+    .from('sync_logs')
+    .select('id')
+    .eq('status', 'started')
+    .lt('started_at', thirtyMinutesAgo)
+
+  if (hangingJobs && hangingJobs.length > 0) {
+    console.log(`Found ${hangingJobs.length} hanging sync logs, marking as failed`)
+    
+    await supabaseClient
+      .from('sync_logs')
+      .update({
+        status: 'failed',
+        error_message: 'Job timed out after 30 minutes',
+        completed_at: new Date().toISOString()
+      })
+      .in('id', hangingJobs.map(job => job.id))
+  }
+}
+
 serve(async (req) => {
   console.log('Job processor called with method:', req.method)
   
@@ -258,6 +286,9 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     )
+
+    // Clean up hanging jobs first
+    await cleanupHangingJobs(supabaseClient)
 
     // Get pending detailed sync jobs
     const { data: pendingJobs, error: jobsError } = await supabaseClient
@@ -290,14 +321,41 @@ serve(async (req) => {
 
     const results = []
     
-    // Process each job
+    // Process each job with timeout protection
     for (const job of pendingJobs) {
-      const result = await processDetailedSyncJob(job, supabaseClient)
-      results.push({
-        job_id: job.id,
-        webinar_zoom_id: job.metadata?.webinar_zoom_id,
-        ...result
-      })
+      try {
+        // Set a timeout for each job (10 minutes max)
+        const jobPromise = processDetailedSyncJob(job, supabaseClient)
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Job timeout after 10 minutes')), 10 * 60 * 1000)
+        )
+        
+        const result = await Promise.race([jobPromise, timeoutPromise])
+        results.push({
+          job_id: job.id,
+          webinar_zoom_id: job.metadata?.webinar_zoom_id,
+          ...result
+        })
+      } catch (error) {
+        console.error(`Job ${job.id} failed or timed out:`, error)
+        
+        // Mark job as failed if it timed out
+        await supabaseClient
+          .from('sync_jobs')
+          .update({
+            status: 'failed',
+            error_message: error.message,
+            completed_at: new Date().toISOString()
+          })
+          .eq('id', job.id)
+        
+        results.push({
+          job_id: job.id,
+          webinar_zoom_id: job.metadata?.webinar_zoom_id,
+          success: false,
+          error: error.message
+        })
+      }
       
       // Small delay between jobs
       await new Promise(resolve => setTimeout(resolve, 500))
