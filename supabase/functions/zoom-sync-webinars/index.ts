@@ -75,17 +75,48 @@ serve(async (req) => {
             accessToken
           )
 
-          // Create detailed sync job for this webinar with COMPLETE metadata
-          const syncTypes = ['participants', 'registrations', 'polls', 'qa']
+          // Determine sync types based on webinar status
+          const baseSync = ['participants', 'registrations', 'polls', 'qa']
+          let syncTypes = [...baseSync]
           
-          // Add chat sync for completed webinars
-          const isCompleted = detailData.status === 'ended' || result.webinarRecord.status === 'completed'
+          // Check if webinar is completed and should include chat
+          const isCompleted = detailData.status === 'ended' || 
+                             result.webinarRecord.status === 'completed' ||
+                             (result.webinarRecord.start_time && 
+                              new Date(result.webinarRecord.start_time) < new Date(Date.now() - 24 * 60 * 60 * 1000))
+
           if (isCompleted) {
             syncTypes.push('chat')
             console.log(`Adding chat sync for completed webinar: ${detailData.id}`)
+            
+            // Update webinar status to completed if it should be
+            if (result.webinarRecord.status !== 'completed') {
+              await supabaseClient
+                .from('webinars')
+                .update({ status: 'completed' })
+                .eq('id', result.webinarRecord.id)
+              
+              console.log(`Updated webinar ${result.webinarRecord.id} status to completed`)
+            }
           }
 
-          // Create job with COMPLETE metadata including webinar_id
+          // Create job with COMPLETE metadata structure
+          const jobMetadata = {
+            webinar_zoom_id: detailData.id?.toString(),
+            webinar_id: result.webinarRecord.id, // CRITICAL: Include webinar_id
+            organization_id, // Include for redundancy
+            user_id, // Include for redundancy
+            sync_types: syncTypes,
+            webinar_status: isCompleted ? 'completed' : result.webinarRecord.status,
+            webinar_title: result.webinarRecord.title,
+            is_completed: isCompleted,
+            created_by: 'enhanced_webinar_sync',
+            scheduled_at: new Date().toISOString(),
+            has_chat_sync: syncTypes.includes('chat')
+          }
+
+          console.log(`Creating job for webinar ${detailData.id} with metadata:`, jobMetadata)
+
           await supabaseClient
             .from('sync_jobs')
             .insert({
@@ -93,18 +124,7 @@ serve(async (req) => {
               user_id,
               job_type: 'detailed_webinar_sync',
               status: 'pending',
-              metadata: {
-                webinar_zoom_id: detailData.id?.toString(),
-                organization_id, // Include in metadata for redundancy
-                user_id, // Include in metadata for redundancy
-                webinar_id: result.webinarRecord.id, // CRITICAL: Include webinar_id
-                sync_types: syncTypes,
-                webinar_status: result.webinarRecord.status,
-                webinar_title: result.webinarRecord.title,
-                is_completed: isCompleted,
-                created_by: 'enhanced_webinar_sync',
-                scheduled_at: new Date().toISOString()
-              }
+              metadata: jobMetadata
             })
 
           console.log(`Created sync job for webinar ${detailData.id} with sync types: ${syncTypes.join(', ')}`)
@@ -142,7 +162,7 @@ serve(async (req) => {
         errors: errorCount,
         comprehensive_data: true,
         detailed_jobs_created: processedCount,
-        jobs_with_chat_sync: allWebinars.filter((_, i) => i < processedCount).length // Estimate
+        jobs_with_chat_sync: allWebinars.filter((_, i) => i < processedCount).length
       }),
       {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },

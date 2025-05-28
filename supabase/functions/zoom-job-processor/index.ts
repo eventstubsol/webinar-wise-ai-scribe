@@ -17,11 +17,41 @@ interface SyncJob {
   created_at: string
 }
 
+async function cleanupBrokenJobs(supabaseClient: any) {
+  console.log('Starting cleanup of broken jobs...')
+  
+  // Find jobs with incomplete metadata
+  const { data: brokenJobs, error } = await supabaseClient
+    .from('sync_jobs')
+    .select('id, metadata')
+    .eq('status', 'pending')
+    .eq('job_type', 'detailed_webinar_sync')
+
+  if (brokenJobs && brokenJobs.length > 0) {
+    const jobsToDelete = brokenJobs.filter(job => {
+      const metadata = job.metadata || {}
+      // Check if job is missing critical metadata
+      return !metadata.webinar_id || !metadata.webinar_zoom_id || !metadata.organization_id || !metadata.user_id
+    })
+
+    if (jobsToDelete.length > 0) {
+      console.log(`Deleting ${jobsToDelete.length} broken jobs with incomplete metadata`)
+      
+      await supabaseClient
+        .from('sync_jobs')
+        .delete()
+        .in('id', jobsToDelete.map(job => job.id))
+      
+      console.log('Broken jobs cleaned up successfully')
+    }
+  }
+}
+
 async function processDetailedSyncJob(job: SyncJob, supabaseClient: any) {
   console.log(`Processing job: ${job.id} - ${job.job_type}`)
   
   try {
-    // Extract metadata with proper fallbacks and validation
+    // Extract metadata with validation
     const { 
       webinar_zoom_id, 
       organization_id, 
@@ -31,26 +61,25 @@ async function processDetailedSyncJob(job: SyncJob, supabaseClient: any) {
       webinar_status
     } = job.metadata || {}
 
-    // Use job-level IDs as fallback if not in metadata
+    // Use job-level IDs as fallback
     const finalOrgId = organization_id || job.organization_id
     const finalUserId = user_id || job.user_id
 
-    console.log(`Job ${job.id} metadata check:`, {
+    console.log(`Job ${job.id} processing:`, {
       webinar_zoom_id,
       finalOrgId,
       finalUserId,
       webinar_id,
-      sync_types
+      sync_types,
+      hasMetadata: !!job.metadata
     })
 
+    // Validate required fields
     if (!webinar_zoom_id || !finalOrgId || !finalUserId) {
-      const errorMsg = `Missing required job metadata: webinar_zoom_id=${webinar_zoom_id}, org_id=${finalOrgId}, user_id=${finalUserId}`
+      const errorMsg = `Job ${job.id} missing critical metadata: webinar_zoom_id=${webinar_zoom_id}, org_id=${finalOrgId}, user_id=${finalUserId}`
       console.error(errorMsg)
       throw new Error(errorMsg)
     }
-
-    console.log(`Processing webinar ${webinar_zoom_id} for org ${finalOrgId}, user ${finalUserId}`)
-    console.log(`Sync types: ${sync_types.join(', ')}`)
 
     // Update job status to running
     await supabaseClient
@@ -62,41 +91,42 @@ async function processDetailedSyncJob(job: SyncJob, supabaseClient: any) {
       })
       .eq('id', job.id)
 
-    // Get webinar record with timeout protection
+    // Find webinar record with improved lookup
     let webinar
-    console.log(`Looking up webinar with webinar_id: ${webinar_id}`)
+    console.log(`Looking up webinar - webinar_id: ${webinar_id}, zoom_webinar_id: ${webinar_zoom_id}`)
     
     if (webinar_id) {
       const { data: webinarData, error: webinarError } = await supabaseClient
         .from('webinars')
-        .select('id, status, start_time, title')
+        .select('id, status, start_time, title, zoom_webinar_id')
         .eq('id', webinar_id)
         .single()
       
-      if (webinarError) {
-        console.log(`Webinar not found by ID ${webinar_id}, looking up by zoom_webinar_id: ${webinar_zoom_id}`)
-      } else {
+      if (!webinarError && webinarData) {
         webinar = webinarData
-        console.log(`Found webinar by ID: ${webinar.id}`)
+        console.log(`Found webinar by ID: ${webinar.id} (${webinar.title})`)
+      } else {
+        console.log(`Webinar lookup by ID failed: ${webinarError?.message}`)
       }
     }
 
-    // Fallback to lookup by zoom_webinar_id if needed
+    // Fallback to lookup by zoom_webinar_id
     if (!webinar) {
       console.log(`Looking up webinar by zoom_webinar_id: ${webinar_zoom_id}`)
       const { data: webinarData, error: webinarError } = await supabaseClient
         .from('webinars')
-        .select('id, status, start_time, title')
+        .select('id, status, start_time, title, zoom_webinar_id')
         .eq('zoom_webinar_id', webinar_zoom_id)
         .eq('organization_id', finalOrgId)
         .single()
 
-      if (webinarError || !webinarData) {
+      if (!webinarError && webinarData) {
+        webinar = webinarData
+        console.log(`Found webinar by zoom_webinar_id: ${webinar.id} (${webinar.title})`)
+      } else {
         console.error(`Webinar lookup failed for zoom_webinar_id: ${webinar_zoom_id}`, webinarError)
         throw new Error(`Webinar not found: ${webinar_zoom_id}`)
       }
-      webinar = webinarData
-      console.log(`Found webinar by zoom_webinar_id: ${webinar.id}`)
     }
 
     const finalWebinarId = webinar.id
@@ -110,171 +140,147 @@ async function processDetailedSyncJob(job: SyncJob, supabaseClient: any) {
 
     await supabaseClient.from('sync_jobs').update({ progress: 20 }).eq('id', job.id)
 
-    // Process each sync type with error handling and timeouts
-    if (sync_types.includes('participants')) {
+    // Process each sync type with improved error handling
+    for (const syncType of sync_types) {
       try {
-        console.log('Processing participants...')
-        const participantsResult = await Promise.race([
-          supabaseClient.functions.invoke('zoom-sync-participants', {
-            body: {
-              organization_id: finalOrgId,
-              user_id: finalUserId,
-              webinar_id: finalWebinarId,
-              zoom_webinar_id: webinar_zoom_id,
-            }
-          }),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Participants sync timeout')), 60000))
-        ])
+        console.log(`Processing ${syncType}...`)
+        
+        if (syncType === 'participants') {
+          const participantsResult = await Promise.race([
+            supabaseClient.functions.invoke('zoom-sync-participants', {
+              body: {
+                organization_id: finalOrgId,
+                user_id: finalUserId,
+                webinar_id: finalWebinarId,
+                zoom_webinar_id: webinar_zoom_id,
+              }
+            }),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('Participants sync timeout')), 45000))
+          ])
 
-        if (participantsResult.data?.success) {
-          results.participants.success = true
-          results.participants.count = participantsResult.data.participants_synced || 0
-          console.log(`✓ Participants synced: ${results.participants.count}`)
-        } else {
-          results.participants.error = participantsResult.error?.message || 'Unknown error'
-          console.log(`❌ Participants sync failed: ${results.participants.error}`)
-        }
-      } catch (error) {
-        results.participants.error = error.message
-        console.log(`❌ Participants sync error: ${error.message}`)
-      }
-    }
-
-    await supabaseClient.from('sync_jobs').update({ progress: 35 }).eq('id', job.id)
-    await new Promise(resolve => setTimeout(resolve, 1000))
-
-    if (sync_types.includes('registrations')) {
-      try {
-        console.log('Processing registrations...')
-        const registrationsResult = await Promise.race([
-          supabaseClient.functions.invoke('zoom-sync-registrations', {
-            body: {
-              organization_id: finalOrgId,
-              user_id: finalUserId,
-              webinar_id: finalWebinarId,
-              zoom_webinar_id: webinar_zoom_id,
-            }
-          }),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Registrations sync timeout')), 60000))
-        ])
-
-        if (registrationsResult.data?.success) {
-          results.registrations.success = true
-          results.registrations.count = registrationsResult.data.registrations_synced || 0
-          console.log(`✓ Registrations synced: ${results.registrations.count}`)
-        } else {
-          results.registrations.error = registrationsResult.error?.message || 'Unknown error'
-          console.log(`❌ Registrations sync failed: ${results.registrations.error}`)
-        }
-      } catch (error) {
-        results.registrations.error = error.message
-        console.log(`❌ Registrations sync error: ${error.message}`)
-      }
-    }
-
-    await supabaseClient.from('sync_jobs').update({ progress: 50 }).eq('id', job.id)
-    await new Promise(resolve => setTimeout(resolve, 1000))
-
-    if (sync_types.includes('polls')) {
-      try {
-        console.log('Processing polls...')
-        const pollsResult = await Promise.race([
-          supabaseClient.functions.invoke('zoom-sync-polls', {
-            body: {
-              organization_id: finalOrgId,
-              user_id: finalUserId,
-              webinar_id: finalWebinarId,
-              zoom_webinar_id: webinar_zoom_id,
-            }
-          }),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Polls sync timeout')), 60000))
-        ])
-
-        if (pollsResult.data?.success) {
-          results.polls.success = true
-          results.polls.count = pollsResult.data.polls_synced || 0
-          console.log(`✓ Polls synced: ${results.polls.count}`)
-        } else {
-          results.polls.error = pollsResult.error?.message || 'Unknown error'
-          console.log(`❌ Polls sync failed: ${results.polls.error}`)
-        }
-      } catch (error) {
-        results.polls.error = error.message
-        console.log(`❌ Polls sync error: ${error.message}`)
-      }
-    }
-
-    await supabaseClient.from('sync_jobs').update({ progress: 65 }).eq('id', job.id)
-    await new Promise(resolve => setTimeout(resolve, 1000))
-
-    if (sync_types.includes('qa')) {
-      try {
-        console.log('Processing Q&A...')
-        const qaResult = await Promise.race([
-          supabaseClient.functions.invoke('zoom-sync-qa', {
-            body: {
-              organization_id: finalOrgId,
-              user_id: finalUserId,
-              webinar_id: finalWebinarId,
-              zoom_webinar_id: webinar_zoom_id,
-            }
-          }),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('QA sync timeout')), 60000))
-        ])
-
-        if (qaResult.data?.success) {
-          results.qa.success = true
-          results.qa.count = qaResult.data.qa_synced || 0
-          console.log(`✓ Q&A synced: ${results.qa.count}`)
-        } else {
-          results.qa.error = qaResult.error?.message || 'Unknown error'
-          console.log(`❌ Q&A sync failed: ${results.qa.error}`)
-        }
-      } catch (error) {
-        results.qa.error = error.message
-        console.log(`❌ Q&A sync error: ${error.message}`)
-      }
-    }
-
-    await supabaseClient.from('sync_jobs').update({ progress: 80 }).eq('id', job.id)
-    await new Promise(resolve => setTimeout(resolve, 1000))
-
-    // Process chat if included in sync types
-    if (sync_types.includes('chat')) {
-      try {
-        console.log('Processing chat...')
-        const chatResult = await Promise.race([
-          supabaseClient.functions.invoke('zoom-sync-chat', {
-            body: {
-              organization_id: finalOrgId,
-              user_id: finalUserId,
-              webinar_id: finalWebinarId,
-              zoom_webinar_id: webinar_zoom_id,
-            }
-          }),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Chat sync timeout')), 60000))
-        ])
-
-        if (chatResult.data?.success) {
-          results.chat.success = true
-          results.chat.count = chatResult.data.messages_synced || 0
-          results.chat.skipped = chatResult.data.skipped || false
-          if (results.chat.skipped) {
-            console.log(`⏭️ Chat sync skipped: ${chatResult.data.reason}`)
+          if (participantsResult.data?.success) {
+            results.participants.success = true
+            results.participants.count = participantsResult.data.participants_synced || 0
+            console.log(`✓ Participants synced: ${results.participants.count}`)
           } else {
-            console.log(`✓ Chat synced: ${results.chat.count} messages`)
+            results.participants.error = participantsResult.error?.message || 'Unknown error'
+            console.log(`❌ Participants sync failed: ${results.participants.error}`)
           }
-        } else {
-          results.chat.error = chatResult.error?.message || 'Unknown error'
-          console.log(`❌ Chat sync failed: ${results.chat.error}`)
         }
+
+        if (syncType === 'registrations') {
+          const registrationsResult = await Promise.race([
+            supabaseClient.functions.invoke('zoom-sync-registrations', {
+              body: {
+                organization_id: finalOrgId,
+                user_id: finalUserId,
+                webinar_id: finalWebinarId,
+                zoom_webinar_id: webinar_zoom_id,
+              }
+            }),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('Registrations sync timeout')), 45000))
+          ])
+
+          if (registrationsResult.data?.success) {
+            results.registrations.success = true
+            results.registrations.count = registrationsResult.data.registrations_synced || 0
+            console.log(`✓ Registrations synced: ${results.registrations.count}`)
+          } else {
+            results.registrations.error = registrationsResult.error?.message || 'Unknown error'
+            console.log(`❌ Registrations sync failed: ${results.registrations.error}`)
+          }
+        }
+
+        if (syncType === 'polls') {
+          const pollsResult = await Promise.race([
+            supabaseClient.functions.invoke('zoom-sync-polls', {
+              body: {
+                organization_id: finalOrgId,
+                user_id: finalUserId,
+                webinar_id: finalWebinarId,
+                zoom_webinar_id: webinar_zoom_id,
+              }
+            }),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('Polls sync timeout')), 45000))
+          ])
+
+          if (pollsResult.data?.success) {
+            results.polls.success = true
+            results.polls.count = pollsResult.data.polls_synced || 0
+            console.log(`✓ Polls synced: ${results.polls.count}`)
+          } else {
+            results.polls.error = pollsResult.error?.message || 'Unknown error'
+            console.log(`❌ Polls sync failed: ${results.polls.error}`)
+          }
+        }
+
+        if (syncType === 'qa') {
+          const qaResult = await Promise.race([
+            supabaseClient.functions.invoke('zoom-sync-qa', {
+              body: {
+                organization_id: finalOrgId,
+                user_id: finalUserId,
+                webinar_id: finalWebinarId,
+                zoom_webinar_id: webinar_zoom_id,
+              }
+            }),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('QA sync timeout')), 45000))
+          ])
+
+          if (qaResult.data?.success) {
+            results.qa.success = true
+            results.qa.count = qaResult.data.qa_synced || 0
+            console.log(`✓ Q&A synced: ${results.qa.count}`)
+          } else {
+            results.qa.error = qaResult.error?.message || 'Unknown error'
+            console.log(`❌ Q&A sync failed: ${results.qa.error}`)
+          }
+        }
+
+        if (syncType === 'chat') {
+          console.log(`Processing chat for webinar status: ${webinar.status}`)
+          
+          const chatResult = await Promise.race([
+            supabaseClient.functions.invoke('zoom-sync-chat', {
+              body: {
+                organization_id: finalOrgId,
+                user_id: finalUserId,
+                webinar_id: finalWebinarId,
+                zoom_webinar_id: webinar_zoom_id,
+              }
+            }),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('Chat sync timeout')), 45000))
+          ])
+
+          if (chatResult.data?.success) {
+            results.chat.success = true
+            results.chat.count = chatResult.data.messages_synced || 0
+            results.chat.skipped = chatResult.data.skipped || false
+            if (results.chat.skipped) {
+              console.log(`⏭️ Chat sync skipped: ${chatResult.data.reason}`)
+            } else {
+              console.log(`✓ Chat synced: ${results.chat.count} messages`)
+            }
+          } else {
+            results.chat.error = chatResult.error?.message || 'Unknown error'
+            console.log(`❌ Chat sync failed: ${results.chat.error}`)
+          }
+        }
+
+        // Update progress
+        const progress = 20 + (sync_types.indexOf(syncType) + 1) * (60 / sync_types.length)
+        await supabaseClient.from('sync_jobs').update({ progress: Math.round(progress) }).eq('id', job.id)
+        
+        // Delay between sync operations
+        await new Promise(resolve => setTimeout(resolve, 1000))
+        
       } catch (error) {
-        results.chat.error = error.message
-        console.log(`❌ Chat sync error: ${error.message}`)
+        console.error(`Error processing ${syncType}:`, error.message)
+        results[syncType].error = error.message
       }
     }
 
-    // Update attendee count in webinar table if participants were synced
+    // Update attendee count if participants were synced
     if (results.participants.success && results.participants.count > 0) {
       await supabaseClient
         .from('webinars')
@@ -319,14 +325,14 @@ async function processDetailedSyncJob(job: SyncJob, supabaseClient: any) {
 }
 
 async function cleanupHangingJobs(supabaseClient: any) {
-  // Find jobs that have been "running" for more than 30 minutes
-  const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString()
+  // Find jobs that have been "running" for more than 15 minutes
+  const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000).toISOString()
   
   const { data: hangingJobs, error } = await supabaseClient
     .from('sync_jobs')
     .select('id')
     .eq('status', 'running')
-    .lt('started_at', thirtyMinutesAgo)
+    .lt('started_at', fifteenMinutesAgo)
 
   if (hangingJobs && hangingJobs.length > 0) {
     console.log(`Found ${hangingJobs.length} hanging sync jobs, marking as failed`)
@@ -335,7 +341,7 @@ async function cleanupHangingJobs(supabaseClient: any) {
       .from('sync_jobs')
       .update({
         status: 'failed',
-        error_message: 'Job timed out after 30 minutes',
+        error_message: 'Job timed out after 15 minutes',
         completed_at: new Date().toISOString()
       })
       .in('id', hangingJobs.map(job => job.id))
@@ -357,8 +363,9 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     )
 
-    // Clean up hanging jobs first
+    // Clean up hanging and broken jobs first
     await cleanupHangingJobs(supabaseClient)
+    await cleanupBrokenJobs(supabaseClient)
 
     // Get pending detailed sync jobs
     const { data: pendingJobs, error: jobsError } = await supabaseClient
@@ -367,7 +374,7 @@ serve(async (req) => {
       .eq('status', 'pending')
       .eq('job_type', 'detailed_webinar_sync')
       .order('created_at', { ascending: true })
-      .limit(3) // Process max 3 jobs at a time to prevent hanging
+      .limit(2) // Process fewer jobs at once
 
     if (jobsError) {
       throw new Error(`Failed to fetch pending jobs: ${jobsError.message}`)
@@ -391,13 +398,15 @@ serve(async (req) => {
 
     const results = []
     
-    // Process each job with timeout protection
+    // Process each job with comprehensive error handling
     for (const job of pendingJobs) {
       try {
-        // Set a timeout for each job (5 minutes max)
+        console.log(`Starting processing of job ${job.id}`)
+        
+        // Set a timeout for each job (3 minutes max)
         const jobPromise = processDetailedSyncJob(job, supabaseClient)
         const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Job timeout after 5 minutes')), 5 * 60 * 1000)
+          setTimeout(() => reject(new Error('Job timeout after 3 minutes')), 3 * 60 * 1000)
         )
         
         const result = await Promise.race([jobPromise, timeoutPromise])
@@ -427,8 +436,8 @@ serve(async (req) => {
         })
       }
       
-      // Small delay between jobs
-      await new Promise(resolve => setTimeout(resolve, 500))
+      // Delay between jobs
+      await new Promise(resolve => setTimeout(resolve, 1000))
     }
 
     const processingTime = Date.now() - startTime
