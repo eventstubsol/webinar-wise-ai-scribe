@@ -338,26 +338,506 @@ export type Database = {
           },
         ]
       }
+      webinar_authentication: {
+        Row: {
+          authentication_domains: string | null
+          authentication_name: string | null
+          authentication_option: string | null
+          created_at: string | null
+          enforce_login: boolean | null
+          enforce_login_domains: string | null
+          id: string
+          meeting_authentication: boolean | null
+          organization_id: string
+          panelist_authentication: boolean | null
+          updated_at: string | null
+          webinar_id: string
+        }
+        Insert: {
+          authentication_domains?: string | null
+          authentication_name?: string | null
+          authentication_option?: string | null
+          created_at?: string | null
+          enforce_login?: boolean | null
+          enforce_login_domains?: string | null
+          id?: string
+          meeting_authentication?: boolean | null
+          organization_id: string
+          panelist_authentication?: boolean | null
+          updated_at?: string | null
+          webinar_id: string
+        }
+        Update: {
+          authentication_domains?: string | null
+          authentication_name?: string | null
+          authentication_option?: string | null
+          created_at?: string | null
+          enforce_login?: boolean | null
+          enforce_login_domains?: string | null
+          id?: string
+          meeting_authentication?: boolean | null
+          organization_id?: string
+          panelist_authentication?: boolean | null
+          updated_at?: string | null
+          webinar_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "webinar_authentication_webinar_id_fkey"
+            columns: ["webinar_id"]
+            isOneToOne: false
+            referencedRelation: "webinars"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      webinar_interpreters: {
+        Row: {
+          created_at: string | null
+          email: string
+          id: string
+          interpreter_type: string
+          languages: string | null
+          organization_id: string
+          sign_language: string | null
+          updated_at: string | null
+          webinar_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          email: string
+          id?: string
+          interpreter_type: string
+          languages?: string | null
+          organization_id: string
+          sign_language?: string | null
+          updated_at?: string | null
+          webinar_id: string
+        }
+        Update: {
+          created_at?: string | null
+          email?: string
+          id?: string
+          interpreter_type?: string
+          languages?: string | null
+          organization_id?: string
+          sign_language?: string | null
+          updated_at?: string | null
+          webinar_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "webinar_interpreters_webinar_id_fkey"
+            columns: ["webinar_id"]
+            isOneToOne: false
+            referencedRelation: "webinars"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      webinar_notifications: {
+        Row: {
+          attendees_reminder_enable: boolean | null
+          attendees_reminder_type: number | null
+          created_at: string | null
+          follow_up_absentees_enable: boolean | null
+          follow_up_absentees_type: number | null
+          follow_up_attendees_enable: boolean | null
+          follow_up_attendees_type: number | null
+          id: string
+          organization_id: string
+          updated_at: string | null
+          webinar_id: string
+        }
+        Insert: {
+          attendees_reminder_enable?: boolean | null
+          attendees_reminder_type?: number | null
+          created_at?: string | null
+          follow_up_absentees_enable?: boolean | null
+          follow_up_absentees_type?: number | null
+          follow_up_attendees_enable?: boolean | null
+          follow_up_attendees_type?: number | null
+          id?: string
+          organization_id: string
+          updated_at?: string | null
+          webinar_id: string
+        }
+        Update: {
+          attendees_reminder_enable?: boolean | null
+          attendees_reminder_type?: number | null
+          created_at?: string | null
+          follow_up_absentees_enable?: boolean | null
+          follow_up_absentees_type?: number | null
+          follow_up_attendees_enable?: boolean | null
+          follow_up_attendees_type?: number | null
+          id?: string
+          organization_id?: string
+          updated_at?: string | null
+          webinar_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "webinar_notifications_webinar_id_fkey"
+            columns: ["webinar_id"]
+            isOneToOne: false
+            referencedRelation: "webinars"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      webinar_occurrences: {
+        Row: {
+          created_at: string | null
+          duration: number | null
+          id: string
+          occurrence_id: string
+          organization_id: string
+          start_time: string | null
+          status: string | null
+          updated_at: string | null
+          webinar_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          duration?: number | null
+          id?: string
+          occurrence_id: string
+          organization_id: string
+          start_time?: string | null
+          status?: string | null
+          updated_at?: string | null
+          webinar_id: string
+        }
+        Update: {
+          created_at?: string | null
+          duration?: number | null
+          id?: string
+          occurrence_id?: string
+          organization_id?: string
+          start_time?: string | null
+          status?: string | null
+          updated_at?: string | null
+          webinar_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "webinar_occurrences_webinar_id_fkey"
+            columns: ["webinar_id"]
+            isOneToOne: false
+            referencedRelation: "webinars"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      webinar_qa_settings: {
+        Row: {
+          allow_anonymous_questions: boolean | null
+          allow_auto_reply: boolean | null
+          allow_submit_questions: boolean | null
+          answer_questions: string | null
+          attendees_can_comment: boolean | null
+          attendees_can_upvote: boolean | null
+          auto_reply_text: string | null
+          created_at: string | null
+          enable: boolean | null
+          id: string
+          organization_id: string
+          updated_at: string | null
+          webinar_id: string
+        }
+        Insert: {
+          allow_anonymous_questions?: boolean | null
+          allow_auto_reply?: boolean | null
+          allow_submit_questions?: boolean | null
+          answer_questions?: string | null
+          attendees_can_comment?: boolean | null
+          attendees_can_upvote?: boolean | null
+          auto_reply_text?: string | null
+          created_at?: string | null
+          enable?: boolean | null
+          id?: string
+          organization_id: string
+          updated_at?: string | null
+          webinar_id: string
+        }
+        Update: {
+          allow_anonymous_questions?: boolean | null
+          allow_auto_reply?: boolean | null
+          allow_submit_questions?: boolean | null
+          answer_questions?: string | null
+          attendees_can_comment?: boolean | null
+          attendees_can_upvote?: boolean | null
+          auto_reply_text?: string | null
+          created_at?: string | null
+          enable?: boolean | null
+          id?: string
+          organization_id?: string
+          updated_at?: string | null
+          webinar_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "webinar_qa_settings_webinar_id_fkey"
+            columns: ["webinar_id"]
+            isOneToOne: false
+            referencedRelation: "webinars"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      webinar_recurrence: {
+        Row: {
+          created_at: string | null
+          end_date_time: string | null
+          end_times: number | null
+          id: string
+          monthly_day: number | null
+          monthly_week: number | null
+          monthly_week_day: number | null
+          organization_id: string
+          recurrence_type: number
+          repeat_interval: number | null
+          updated_at: string | null
+          webinar_id: string
+          weekly_days: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          end_date_time?: string | null
+          end_times?: number | null
+          id?: string
+          monthly_day?: number | null
+          monthly_week?: number | null
+          monthly_week_day?: number | null
+          organization_id: string
+          recurrence_type: number
+          repeat_interval?: number | null
+          updated_at?: string | null
+          webinar_id: string
+          weekly_days?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          end_date_time?: string | null
+          end_times?: number | null
+          id?: string
+          monthly_day?: number | null
+          monthly_week?: number | null
+          monthly_week_day?: number | null
+          organization_id?: string
+          recurrence_type?: number
+          repeat_interval?: number | null
+          updated_at?: string | null
+          webinar_id?: string
+          weekly_days?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "webinar_recurrence_webinar_id_fkey"
+            columns: ["webinar_id"]
+            isOneToOne: false
+            referencedRelation: "webinars"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      webinar_settings: {
+        Row: {
+          add_audio_watermark: boolean | null
+          add_watermark: boolean | null
+          allow_host_control_participant_mute_state: boolean | null
+          allow_multiple_devices: boolean | null
+          alternative_host_update_polls: boolean | null
+          alternative_hosts: string | null
+          approval_type: number | null
+          audio: string | null
+          audio_conference_info: string | null
+          auto_recording: string | null
+          contact_email: string | null
+          contact_name: string | null
+          created_at: string | null
+          email_in_attendee_report: boolean | null
+          email_language: string | null
+          enable_session_branding: boolean | null
+          global_dial_in_countries: Json | null
+          hd_video: boolean | null
+          hd_video_for_attendees: boolean | null
+          host_video: boolean | null
+          id: string
+          notify_registrants: boolean | null
+          on_demand: boolean | null
+          organization_id: string
+          panelists_invitation_email_notification: boolean | null
+          panelists_video: boolean | null
+          post_webinar_survey: boolean | null
+          practice_session: boolean | null
+          registrants_confirmation_email: boolean | null
+          registrants_email_notification: boolean | null
+          registrants_restrict_number: number | null
+          registration_type: number | null
+          send_1080p_video_to_attendees: boolean | null
+          show_share_button: boolean | null
+          survey_url: string | null
+          updated_at: string | null
+          webinar_id: string
+        }
+        Insert: {
+          add_audio_watermark?: boolean | null
+          add_watermark?: boolean | null
+          allow_host_control_participant_mute_state?: boolean | null
+          allow_multiple_devices?: boolean | null
+          alternative_host_update_polls?: boolean | null
+          alternative_hosts?: string | null
+          approval_type?: number | null
+          audio?: string | null
+          audio_conference_info?: string | null
+          auto_recording?: string | null
+          contact_email?: string | null
+          contact_name?: string | null
+          created_at?: string | null
+          email_in_attendee_report?: boolean | null
+          email_language?: string | null
+          enable_session_branding?: boolean | null
+          global_dial_in_countries?: Json | null
+          hd_video?: boolean | null
+          hd_video_for_attendees?: boolean | null
+          host_video?: boolean | null
+          id?: string
+          notify_registrants?: boolean | null
+          on_demand?: boolean | null
+          organization_id: string
+          panelists_invitation_email_notification?: boolean | null
+          panelists_video?: boolean | null
+          post_webinar_survey?: boolean | null
+          practice_session?: boolean | null
+          registrants_confirmation_email?: boolean | null
+          registrants_email_notification?: boolean | null
+          registrants_restrict_number?: number | null
+          registration_type?: number | null
+          send_1080p_video_to_attendees?: boolean | null
+          show_share_button?: boolean | null
+          survey_url?: string | null
+          updated_at?: string | null
+          webinar_id: string
+        }
+        Update: {
+          add_audio_watermark?: boolean | null
+          add_watermark?: boolean | null
+          allow_host_control_participant_mute_state?: boolean | null
+          allow_multiple_devices?: boolean | null
+          alternative_host_update_polls?: boolean | null
+          alternative_hosts?: string | null
+          approval_type?: number | null
+          audio?: string | null
+          audio_conference_info?: string | null
+          auto_recording?: string | null
+          contact_email?: string | null
+          contact_name?: string | null
+          created_at?: string | null
+          email_in_attendee_report?: boolean | null
+          email_language?: string | null
+          enable_session_branding?: boolean | null
+          global_dial_in_countries?: Json | null
+          hd_video?: boolean | null
+          hd_video_for_attendees?: boolean | null
+          host_video?: boolean | null
+          id?: string
+          notify_registrants?: boolean | null
+          on_demand?: boolean | null
+          organization_id?: string
+          panelists_invitation_email_notification?: boolean | null
+          panelists_video?: boolean | null
+          post_webinar_survey?: boolean | null
+          practice_session?: boolean | null
+          registrants_confirmation_email?: boolean | null
+          registrants_email_notification?: boolean | null
+          registrants_restrict_number?: number | null
+          registration_type?: number | null
+          send_1080p_video_to_attendees?: boolean | null
+          show_share_button?: boolean | null
+          survey_url?: string | null
+          updated_at?: string | null
+          webinar_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "webinar_settings_webinar_id_fkey"
+            columns: ["webinar_id"]
+            isOneToOne: false
+            referencedRelation: "webinars"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      webinar_tracking_fields: {
+        Row: {
+          created_at: string | null
+          field_name: string
+          field_value: string
+          id: string
+          organization_id: string
+          updated_at: string | null
+          webinar_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          field_name: string
+          field_value: string
+          id?: string
+          organization_id: string
+          updated_at?: string | null
+          webinar_id: string
+        }
+        Update: {
+          created_at?: string | null
+          field_name?: string
+          field_value?: string
+          id?: string
+          organization_id?: string
+          updated_at?: string | null
+          webinar_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "webinar_tracking_fields_webinar_id_fkey"
+            columns: ["webinar_id"]
+            isOneToOne: false
+            referencedRelation: "webinars"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       webinars: {
         Row: {
           agenda: string | null
           attendees_count: number | null
           created_at: string
+          created_at_zoom: string | null
+          creation_source: string | null
           duration_minutes: number | null
+          encrypted_passcode: string | null
           end_time: string | null
+          h323_passcode: string | null
           has_recording: boolean | null
+          host_id: string | null
           host_name: string | null
           id: string
+          is_simulive: boolean | null
           join_url: string | null
           organization_id: string
           password: string | null
+          record_file_id: string | null
           recording_count: number | null
           registrants_count: number | null
           start_time: string | null
+          start_url: string | null
           timezone: string | null
           title: string
+          transition_to_live: boolean | null
           updated_at: string
           user_id: string | null
+          uuid: string | null
+          webinar_number: number | null
           webinar_type: string | null
           zoom_webinar_id: string | null
         }
@@ -365,21 +845,32 @@ export type Database = {
           agenda?: string | null
           attendees_count?: number | null
           created_at?: string
+          created_at_zoom?: string | null
+          creation_source?: string | null
           duration_minutes?: number | null
+          encrypted_passcode?: string | null
           end_time?: string | null
+          h323_passcode?: string | null
           has_recording?: boolean | null
+          host_id?: string | null
           host_name?: string | null
           id?: string
+          is_simulive?: boolean | null
           join_url?: string | null
           organization_id: string
           password?: string | null
+          record_file_id?: string | null
           recording_count?: number | null
           registrants_count?: number | null
           start_time?: string | null
+          start_url?: string | null
           timezone?: string | null
           title: string
+          transition_to_live?: boolean | null
           updated_at?: string
           user_id?: string | null
+          uuid?: string | null
+          webinar_number?: number | null
           webinar_type?: string | null
           zoom_webinar_id?: string | null
         }
@@ -387,21 +878,32 @@ export type Database = {
           agenda?: string | null
           attendees_count?: number | null
           created_at?: string
+          created_at_zoom?: string | null
+          creation_source?: string | null
           duration_minutes?: number | null
+          encrypted_passcode?: string | null
           end_time?: string | null
+          h323_passcode?: string | null
           has_recording?: boolean | null
+          host_id?: string | null
           host_name?: string | null
           id?: string
+          is_simulive?: boolean | null
           join_url?: string | null
           organization_id?: string
           password?: string | null
+          record_file_id?: string | null
           recording_count?: number | null
           registrants_count?: number | null
           start_time?: string | null
+          start_url?: string | null
           timezone?: string | null
           title?: string
+          transition_to_live?: boolean | null
           updated_at?: string
           user_id?: string | null
+          uuid?: string | null
+          webinar_number?: number | null
           webinar_type?: string | null
           zoom_webinar_id?: string | null
         }
