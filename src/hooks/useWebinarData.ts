@@ -8,6 +8,8 @@ interface WebinarData {
   title: string;
   host_name: string | null;
   start_time: string | null;
+  end_time: string | null;
+  duration_minutes: number | null;
   attendees_count: number | null;
   registrants_count: number | null;
 }
