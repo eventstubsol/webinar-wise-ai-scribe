@@ -75,8 +75,40 @@ export const useZoomConnection = () => {
       }
 
       if (data?.auth_url) {
-        console.log('Redirecting to OAuth URL:', data.auth_url);
-        window.location.href = data.auth_url;
+        console.log('Opening OAuth URL in new window:', data.auth_url);
+        
+        // Open OAuth in a new window
+        const oauthWindow = window.open(
+          data.auth_url,
+          'zoom_oauth',
+          'width=600,height=700,scrollbars=yes,resizable=yes'
+        );
+
+        // Poll to detect when the window closes
+        const pollTimer = setInterval(() => {
+          if (oauthWindow?.closed) {
+            clearInterval(pollTimer);
+            console.log('OAuth window closed, refreshing connection status...');
+            
+            // Wait a moment for the backend to process, then refresh
+            setTimeout(() => {
+              fetchZoomConnection();
+            }, 2000);
+          }
+        }, 1000);
+
+        // Clean up polling if window is still open after 10 minutes
+        setTimeout(() => {
+          clearInterval(pollTimer);
+          if (oauthWindow && !oauthWindow.closed) {
+            oauthWindow.close();
+          }
+        }, 600000);
+
+        toast({
+          title: "OAuth Window Opened",
+          description: "Please complete the Zoom authorization in the new window.",
+        });
       } else {
         throw new Error('Failed to get authorization URL');
       }

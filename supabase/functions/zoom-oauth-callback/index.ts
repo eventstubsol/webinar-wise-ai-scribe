@@ -49,6 +49,22 @@ serve(async (req) => {
     const url = new URL(req.url)
     const code = url.searchParams.get('code')
     const state = url.searchParams.get('state')
+    const error = url.searchParams.get('error')
+    
+    // Handle OAuth errors
+    if (error) {
+      console.error('OAuth error:', error)
+      const appOrigin = 'https://fvehswcrxhdxztycnvgz.lovable.app'
+      const errorUrl = `${appOrigin}/account?zoom_error=${encodeURIComponent(`OAuth error: ${error}`)}`
+      
+      return new Response(null, {
+        status: 302,
+        headers: {
+          ...corsHeaders,
+          'Location': errorUrl,
+        },
+      })
+    }
     
     if (!code) {
       throw new Error('Authorization code not provided')
@@ -61,6 +77,8 @@ serve(async (req) => {
       throw new Error('Invalid state parameter')
     }
 
+    console.log('Processing OAuth callback for user:', userId)
+
     // Get user's stored Zoom credentials
     const { data: connection, error: connectionError } = await supabaseClient
       .from('zoom_connections')
@@ -69,6 +87,7 @@ serve(async (req) => {
       .single()
 
     if (connectionError || !connection) {
+      console.error('Connection error:', connectionError)
       throw new Error('No stored credentials found')
     }
 
@@ -76,6 +95,8 @@ serve(async (req) => {
     const encryptionKey = `${userId}-${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')?.slice(0, 32)}`
     const clientId = await decryptCredential(connection.encrypted_client_id, encryptionKey)
     const clientSecret = await decryptCredential(connection.encrypted_client_secret, encryptionKey)
+
+    console.log('Decrypted credentials successfully, exchanging for token...')
 
     // Exchange authorization code for access token
     const tokenResponse = await fetch('https://zoom.us/oauth/token', {
@@ -97,6 +118,8 @@ serve(async (req) => {
       console.error('Token exchange failed:', tokenData)
       throw new Error(`Token exchange failed: ${tokenData.error_description || tokenData.error}`)
     }
+
+    console.log('Token exchange successful, getting user info...')
 
     // Get user info from Zoom
     const userResponse = await fetch('https://api.zoom.us/v2/users/me', {
@@ -148,8 +171,11 @@ serve(async (req) => {
 
     console.log('Successfully connected Zoom for user:', userId)
 
-    // Redirect to success page
-    const redirectUrl = `${url.origin}/account?zoom_connected=true`
+    // Redirect to the actual app URL instead of the function URL
+    const appOrigin = 'https://fvehswcrxhdxztycnvgz.lovable.app'
+    const redirectUrl = `${appOrigin}/account?zoom_connected=true`
+    
+    console.log('Redirecting to:', redirectUrl)
     
     return new Response(null, {
       status: 302,
@@ -162,9 +188,9 @@ serve(async (req) => {
   } catch (error) {
     console.error('OAuth callback error:', error)
     
-    // Redirect to error page
-    const url = new URL(req.url)
-    const errorUrl = `${url.origin}/account?zoom_error=${encodeURIComponent(error.message)}`
+    // Redirect to error page with the actual app URL
+    const appOrigin = 'https://fvehswcrxhdxztycnvgz.lovable.app'
+    const errorUrl = `${appOrigin}/account?zoom_error=${encodeURIComponent(error.message)}`
     
     return new Response(null, {
       status: 302,

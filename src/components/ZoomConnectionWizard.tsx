@@ -112,17 +112,17 @@ const ZoomConnectionWizard = ({ isOpen, onClose, onSuccess }: ZoomConnectionWiza
       // Wait a moment for credentials to be stored
       await new Promise(resolve => setTimeout(resolve, 1000));
       
-      // Start OAuth flow
+      // Start OAuth flow (this will open in a new window)
       await initializeZoomOAuth();
       
       setCurrentStep('success');
       
       toast({
-        title: "Connection Successful",
-        description: "Your Zoom credentials have been stored and OAuth flow initiated.",
+        title: "OAuth Started",
+        description: "Please complete the authorization in the new window.",
       });
       
-      // Auto-redirect after 3 seconds
+      // Close the wizard after a short delay
       setTimeout(() => {
         onSuccess?.();
         onClose();
@@ -288,9 +288,9 @@ const ZoomConnectionWizard = ({ isOpen, onClose, onSuccess }: ZoomConnectionWiza
               <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
             </div>
             <div>
-              <h3 className="text-lg font-semibold mb-2">Connecting to Zoom</h3>
+              <h3 className="text-lg font-semibold mb-2">Storing Credentials</h3>
               <p className="text-gray-600">
-                We're securely storing your credentials and setting up the connection...
+                We're securely storing your credentials and preparing the OAuth flow...
               </p>
             </div>
             <div className="space-y-2">
@@ -300,7 +300,7 @@ const ZoomConnectionWizard = ({ isOpen, onClose, onSuccess }: ZoomConnectionWiza
               </div>
               <div className="flex items-center justify-center space-x-2 text-sm text-gray-600">
                 <div className="w-2 h-2 bg-gray-300 rounded-full" />
-                <span>Establishing OAuth connection</span>
+                <span>Preparing OAuth authorization</span>
               </div>
             </div>
           </div>
@@ -313,18 +313,18 @@ const ZoomConnectionWizard = ({ isOpen, onClose, onSuccess }: ZoomConnectionWiza
               <CheckCircle className="w-8 h-8 text-green-600" />
             </div>
             <div>
-              <h3 className="text-lg font-semibold mb-2">Successfully Connected!</h3>
+              <h3 className="text-lg font-semibold mb-2">OAuth Window Opened!</h3>
               <p className="text-gray-600 mb-4">
-                Your Zoom credentials have been securely stored and OAuth flow initiated. 
-                You can now sync your webinar data.
+                Your Zoom credentials have been stored and the OAuth authorization window has opened. 
+                Please complete the authorization in the new window.
               </p>
-              <Badge variant="secondary" className="bg-green-100 text-green-800">
-                Connection Active
+              <Badge variant="secondary" className="bg-blue-100 text-blue-800">
+                Authorization Required
               </Badge>
             </div>
-            <div className="bg-green-50 p-4 rounded-lg">
-              <p className="text-sm text-green-800">
-                Redirecting you to the account dashboard in a few seconds...
+            <div className="bg-blue-50 p-4 rounded-lg">
+              <p className="text-sm text-blue-800">
+                After completing authorization in the new window, your connection status will update automatically.
               </p>
             </div>
           </div>
