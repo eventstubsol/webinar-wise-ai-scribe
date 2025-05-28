@@ -19,6 +19,8 @@ export const useZoomIntegration = () => {
     syncWebinarData,
     refreshLogs,
     refreshJobs,
+    chunkedSyncStats,
+    currentChunk,
   } = useZoomSync();
 
   // Guard against sync when not connected
@@ -43,5 +45,7 @@ export const useZoomIntegration = () => {
     refreshConnection,
     refreshLogs,
     refreshJobs,
+    chunkedSyncStats,
+    currentChunk,
   };
 };

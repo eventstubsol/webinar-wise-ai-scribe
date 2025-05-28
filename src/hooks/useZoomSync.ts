@@ -11,6 +11,7 @@ import { useSyncStatusManager } from './useSyncStatusManager';
 import { useSyncValidation } from './useSyncValidation';
 import { useSyncErrorHandler } from './useSyncErrorHandler';
 import { useChunkedSync } from './useChunkedSync';
+import { SyncProgress } from '@/types/sync';
 
 export const useZoomSync = () => {
   const { user } = useAuth();
@@ -163,21 +164,26 @@ export const useZoomSync = () => {
     }
   };
 
+  // Create unified progress object that matches SyncProgress interface
+  const unifiedSyncProgress: SyncProgress = chunkedSync.syncing ? {
+    stage: 'webinars',
+    message: `Processing chunk ${chunkedSync.currentChunk} - ${chunkedSync.totalProcessed} webinars synced`,
+    progress: chunkedSync.progress,
+    details: {
+      webinars_synced: chunkedSync.syncStats.processed,
+      webinars_found: chunkedSync.syncStats.totalFound,
+      detailed_sync_count: chunkedSync.syncStats.chunks,
+      comprehensive_coverage: 'Chunked sync in progress with enhanced reliability'
+    },
+    apiRequestsUsed: 0,
+    estimatedTimeRemaining: `Chunk ${chunkedSync.currentChunk} of estimated ${Math.ceil(chunkedSync.syncStats.totalFound / 5)}`
+  } : syncProgress;
+
   return {
     syncLogs,
     syncJobs,
     syncing: syncing || chunkedSync.syncing,
-    syncProgress: chunkedSync.syncing ? {
-      stage: 'webinars' as const,
-      message: `Processing chunk ${chunkedSync.currentChunk} - ${chunkedSync.totalProcessed} webinars synced`,
-      progress: chunkedSync.progress,
-      details: {
-        webinars_synced: chunkedSync.syncStats.processed,
-        webinars_found: chunkedSync.syncStats.totalFound,
-        chunks_processed: chunkedSync.syncStats.chunks,
-        comprehensive_coverage: 'Chunked sync in progress with enhanced reliability'
-      }
-    } : syncProgress,
+    syncProgress: unifiedSyncProgress,
     syncWebinarData,
     refreshLogs,
     refreshJobs,
