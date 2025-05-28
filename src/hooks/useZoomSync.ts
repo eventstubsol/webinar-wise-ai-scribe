@@ -61,13 +61,13 @@ export const useZoomSync = () => {
     setSyncing(true);
     setSyncProgress({ 
       stage: 'webinars', 
-      message: 'Starting comprehensive sync (180 days)...', 
+      message: 'Starting fast comprehensive sync...', 
       progress: 5,
       apiRequestsUsed: 0
     });
     
     try {
-      console.log('Starting comprehensive sync for user:', user.id);
+      console.log('Starting fast comprehensive sync for user:', user.id);
       
       // Get user's organization
       const { data: profile, error: profileError } = await supabase
@@ -100,60 +100,58 @@ export const useZoomSync = () => {
 
       setSyncProgress({ 
         stage: 'webinars', 
-        message: 'Starting comprehensive sync (180 days)...', 
+        message: 'Starting fast comprehensive sync...', 
         progress: 10,
         apiRequestsUsed: 0
       });
 
       console.log('Calling zoom-comprehensive-rate-limited-sync function...');
 
-      // Call the improved rate-limited comprehensive sync function with 180 days
+      // Call the improved rate-limited comprehensive sync function
       const syncResponse = await supabase.functions.invoke('zoom-comprehensive-rate-limited-sync', {
         body: { 
           organization_id: profile.organization_id,
-          user_id: user.id,
-          days_back: 180
+          user_id: user.id 
         }
       });
 
-      console.log('Comprehensive sync response:', syncResponse);
+      console.log('Fast comprehensive sync response:', syncResponse);
 
       if (syncResponse.error) {
         console.error('Sync function error:', syncResponse.error);
-        throw new Error(syncResponse.error.message || 'Comprehensive sync function failed');
+        throw new Error(syncResponse.error.message || 'Fast comprehensive sync function failed');
       }
 
       const result = syncResponse.data;
-      console.log('Comprehensive sync result:', result);
+      console.log('Fast comprehensive sync result:', result);
 
       // Handle the new response structure
       if (result && result.success) {
         toast({
           title: "Sync Started Successfully",
-          description: "Webinar data sync started! Processing 180 days of historical data in background.",
+          description: "Basic webinar data synced! Detailed processing continues in background.",
         });
 
         // Show immediate success feedback
         if (result.summary) {
           const summary = result.summary;
-          console.log('Sync summary:', summary);
+          console.log('Fast sync summary:', summary);
           
           setSyncProgress({ 
             stage: 'background_processing', 
-            message: 'Processing 180 days of webinar data in background...', 
+            message: 'Basic sync complete. Processing detailed data in background...', 
             progress: 60,
             apiRequestsUsed: summary.api_requests_made || 0,
             details: {
               webinars_synced: summary.webinars_synced,
               webinars_found: summary.webinars_found,
-              days_back: summary.days_back || 180,
-              comprehensive_coverage: '180 days of historical data'
+              comprehensive_coverage: 'Basic sync complete, detailed processing in background'
             }
           });
         }
       } else {
-        console.error('Comprehensive sync failed with result:', result);
-        throw new Error(result?.error || 'Unknown error occurred during comprehensive sync');
+        console.error('Fast comprehensive sync failed with result:', result);
+        throw new Error(result?.error || 'Unknown error occurred during fast comprehensive sync');
       }
 
       // Refresh logs and jobs after sync starts
@@ -161,7 +159,7 @@ export const useZoomSync = () => {
       refreshJobs();
       
     } catch (error: any) {
-      console.error('Comprehensive sync error:', error);
+      console.error('Fast comprehensive sync error:', error);
       
       setSyncProgress({ stage: 'error', message: 'Comprehensive sync failed', progress: 0 });
       setSyncing(false);
