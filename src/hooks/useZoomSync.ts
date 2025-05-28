@@ -209,11 +209,27 @@ export const useZoomSync = () => {
       const result = syncResponse.data;
       console.log('Comprehensive rate-limited sync result:', result);
 
-      // Success message will be handled by the useEffect that monitors sync jobs
-      toast({
-        title: "Comprehensive Sync Started",
-        description: "Your data sync is running with intelligent rate limiting. This may take several minutes for large datasets.",
-      });
+      // Handle the response structure properly
+      if (result && result.success) {
+        // Success message will be handled by the useEffect that monitors sync jobs
+        toast({
+          title: "Comprehensive Sync Started",
+          description: "Your data sync is running with intelligent rate limiting. This may take several minutes for large datasets.",
+        });
+
+        // Show summary if available
+        if (result.summary) {
+          const summary = result.summary;
+          console.log('Sync summary:', summary);
+          
+          // Optional: Show additional success details
+          if (summary.webinars_synced !== undefined) {
+            console.log(`Webinars synced: ${summary.webinars_synced}`);
+          }
+        }
+      } else {
+        throw new Error(result?.error || 'Unknown error occurred during sync');
+      }
 
       // Refresh logs after sync starts
       fetchSyncLogs();
