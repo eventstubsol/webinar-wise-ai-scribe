@@ -36,33 +36,6 @@ async function encryptCredential(text: string, key: string): Promise<string> {
   return btoa(String.fromCharCode(...combined))
 }
 
-async function decryptCredential(encryptedText: string, key: string): Promise<string> {
-  const encoder = new TextEncoder()
-  const decoder = new TextDecoder()
-  const keyData = encoder.encode(key.slice(0, 32).padEnd(32, '0'))
-  
-  const cryptoKey = await crypto.subtle.importKey(
-    'raw',
-    keyData,
-    { name: 'AES-GCM' },
-    false,
-    ['decrypt']
-  )
-  
-  // Decode base64 and extract IV and encrypted data
-  const combined = new Uint8Array(atob(encryptedText).split('').map(c => c.charCodeAt(0)))
-  const iv = combined.slice(0, 12)
-  const encrypted = combined.slice(12)
-  
-  const decrypted = await crypto.subtle.decrypt(
-    { name: 'AES-GCM', iv },
-    cryptoKey,
-    encrypted
-  )
-  
-  return decoder.decode(decrypted)
-}
-
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -116,20 +89,26 @@ serve(async (req) => {
     // Store or update the zoom connection with encrypted credentials
     const { error: upsertError } = await supabaseClient
       .from('zoom_connections')
-      .upsert({
+      .insert({
         user_id: user.id,
         organization_id: profile.organization_id,
         encrypted_client_id: encryptedClientId,
         encrypted_client_secret: encryptedClientSecret,
         encrypted_account_id: encryptedAccountId,
         credentials_stored_at: new Date().toISOString(),
-        connection_status: 'pending', // Will be updated to 'active' after OAuth
-        zoom_user_id: '', // Will be set after OAuth
-        zoom_email: '', // Will be set after OAuth
+        connection_status: 'pending',
+        zoom_user_id: '',
+        zoom_email: '',
         updated_at: new Date().toISOString(),
-      }, {
-        onConflict: 'user_id',
-        ignoreDuplicates: false
+      })
+      .onConflict('user_id')
+      .update({
+        encrypted_client_id: encryptedClientId,
+        encrypted_client_secret: encryptedClientSecret,
+        encrypted_account_id: encryptedAccountId,
+        credentials_stored_at: new Date().toISOString(),
+        connection_status: 'pending',
+        updated_at: new Date().toISOString(),
       })
 
     if (upsertError) {

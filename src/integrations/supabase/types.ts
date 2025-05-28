@@ -388,8 +388,8 @@ export type Database = {
           permissions: Json | null
           updated_at: string
           user_id: string | null
-          zoom_email: string
-          zoom_user_id: string
+          zoom_email: string | null
+          zoom_user_id: string | null
         }
         Insert: {
           connection_status?: string
@@ -403,8 +403,8 @@ export type Database = {
           permissions?: Json | null
           updated_at?: string
           user_id?: string | null
-          zoom_email: string
-          zoom_user_id: string
+          zoom_email?: string | null
+          zoom_user_id?: string | null
         }
         Update: {
           connection_status?: string
@@ -418,8 +418,8 @@ export type Database = {
           permissions?: Json | null
           updated_at?: string
           user_id?: string | null
-          zoom_email?: string
-          zoom_user_id?: string
+          zoom_email?: string | null
+          zoom_user_id?: string | null
         }
         Relationships: [
           {

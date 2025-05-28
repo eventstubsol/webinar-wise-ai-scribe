@@ -35,10 +35,20 @@ export const useZoomConnection = () => {
         .limit(1)
         .maybeSingle();
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error fetching Zoom connection:', error);
+        throw error;
+      }
+      
+      console.log('Fetched zoom connection:', data);
       setZoomConnection(data);
     } catch (error: any) {
       console.error('Error fetching Zoom connection:', error);
+      toast({
+        title: "Error",
+        description: "Failed to fetch Zoom connection status",
+        variant: "destructive",
+      });
     } finally {
       setLoading(false);
     }
@@ -55,24 +65,28 @@ export const useZoomConnection = () => {
         return;
       }
 
+      console.log('Initializing Zoom OAuth...');
+
       const { data, error } = await supabase.functions.invoke('zoom-oauth-initiate');
 
       if (error) {
+        console.error('OAuth initiate error:', error);
         throw new Error(error.message);
       }
 
       if (data?.auth_url) {
+        console.log('Redirecting to OAuth URL:', data.auth_url);
         window.location.href = data.auth_url;
       } else {
         throw new Error('Failed to get authorization URL');
       }
     } catch (error: any) {
+      console.error('OAuth initialization error:', error);
       toast({
         title: "Error",
         description: error.message || "Failed to initialize Zoom OAuth",
         variant: "destructive",
       });
-      console.error('OAuth initialization error:', error);
     }
   };
 

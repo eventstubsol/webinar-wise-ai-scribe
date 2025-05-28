@@ -21,7 +21,7 @@ import {
 } from '@/components/ui/form';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { CheckCircle, Link2, Loader2, ArrowRight, ArrowLeft, ExternalLink } from 'lucide-react';
+import { CheckCircle, Link2, Loader2, ArrowRight, ArrowLeft, ExternalLink, AlertTriangle } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { useZoomIntegration } from '@/hooks/useZoomIntegration';
 import { supabase } from '@/integrations/supabase/client';
@@ -45,6 +45,7 @@ type WizardStep = 'welcome' | 'credentials' | 'connecting' | 'success';
 const ZoomConnectionWizard = ({ isOpen, onClose, onSuccess }: ZoomConnectionWizardProps) => {
   const [currentStep, setCurrentStep] = useState<WizardStep>('welcome');
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const { initializeZoomOAuth } = useZoomIntegration();
   
   const form = useForm<CredentialsForm>({
@@ -68,21 +69,26 @@ const ZoomConnectionWizard = ({ isOpen, onClose, onSuccess }: ZoomConnectionWiza
   const handleNext = () => {
     if (currentStep === 'welcome') {
       setCurrentStep('credentials');
+      setError(null);
     }
   };
 
   const handleBack = () => {
     if (currentStep === 'credentials') {
       setCurrentStep('welcome');
+      setError(null);
     }
   };
 
   const handleCredentialsSubmit = async (data: CredentialsForm) => {
     setIsLoading(true);
     setCurrentStep('connecting');
+    setError(null);
     
     try {
-      // Store credentials using the new edge function
+      console.log('Storing Zoom credentials...');
+      
+      // Store credentials using the edge function
       const { data: storeResponse, error: storeError } = await supabase.functions.invoke('zoom-store-credentials', {
         body: {
           clientId: data.clientId,
@@ -92,13 +98,17 @@ const ZoomConnectionWizard = ({ isOpen, onClose, onSuccess }: ZoomConnectionWiza
       });
 
       if (storeError) {
-        throw new Error(storeError.message);
+        console.error('Store error:', storeError);
+        throw new Error(`Store error: ${storeError.message}`);
       }
 
       if (!storeResponse?.success) {
-        throw new Error('Failed to store credentials');
+        console.error('Store response failed:', storeResponse);
+        throw new Error(storeResponse?.error || 'Failed to store credentials');
       }
 
+      console.log('Credentials stored successfully, starting OAuth...');
+      
       // Wait a moment for credentials to be stored
       await new Promise(resolve => setTimeout(resolve, 1000));
       
@@ -109,7 +119,7 @@ const ZoomConnectionWizard = ({ isOpen, onClose, onSuccess }: ZoomConnectionWiza
       
       toast({
         title: "Connection Successful",
-        description: "Your Zoom credentials have been stored and connection initiated.",
+        description: "Your Zoom credentials have been stored and OAuth flow initiated.",
       });
       
       // Auto-redirect after 3 seconds
@@ -120,12 +130,16 @@ const ZoomConnectionWizard = ({ isOpen, onClose, onSuccess }: ZoomConnectionWiza
       
     } catch (error) {
       console.error('Connection error:', error);
+      const errorMessage = error instanceof Error ? error.message : "Failed to connect to Zoom. Please check your credentials and try again.";
+      
+      setError(errorMessage);
+      setCurrentStep('credentials');
+      
       toast({
         title: "Connection Failed",
-        description: error instanceof Error ? error.message : "Failed to connect to Zoom. Please check your credentials and try again.",
+        description: errorMessage,
         variant: "destructive",
       });
-      setCurrentStep('credentials');
     } finally {
       setIsLoading(false);
     }
@@ -135,6 +149,7 @@ const ZoomConnectionWizard = ({ isOpen, onClose, onSuccess }: ZoomConnectionWiza
     if (!isLoading) {
       form.reset();
       setCurrentStep('welcome');
+      setError(null);
       onClose();
     }
   };
@@ -181,6 +196,18 @@ const ZoomConnectionWizard = ({ isOpen, onClose, onSuccess }: ZoomConnectionWiza
                 Enter your Zoom API credentials. They will be securely encrypted and stored.
               </p>
             </div>
+
+            {error && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                <div className="flex items-start space-x-2">
+                  <AlertTriangle className="w-4 h-4 text-red-600 mt-0.5" />
+                  <div>
+                    <p className="text-sm text-red-800 font-medium">Connection Failed</p>
+                    <p className="text-sm text-red-700">{error}</p>
+                  </div>
+                </div>
+              </div>
+            )}
             
             <Form {...form}>
               <form onSubmit={form.handleSubmit(handleCredentialsSubmit)} className="space-y-4">
@@ -288,7 +315,7 @@ const ZoomConnectionWizard = ({ isOpen, onClose, onSuccess }: ZoomConnectionWiza
             <div>
               <h3 className="text-lg font-semibold mb-2">Successfully Connected!</h3>
               <p className="text-gray-600 mb-4">
-                Your Zoom credentials have been securely stored and your account is now connected. 
+                Your Zoom credentials have been securely stored and OAuth flow initiated. 
                 You can now sync your webinar data.
               </p>
               <Badge variant="secondary" className="bg-green-100 text-green-800">
