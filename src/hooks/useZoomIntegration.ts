@@ -1,3 +1,4 @@
+
 import { useZoomConnection } from './useZoomConnection';
 import { useZoomSync } from './useZoomSync';
 
@@ -12,10 +13,12 @@ export const useZoomIntegration = () => {
 
   const {
     syncLogs,
+    syncJobs,
     syncing,
     syncProgress,
     syncWebinarData,
     refreshLogs,
+    refreshJobs,
   } = useZoomSync();
 
   // Guard against sync when not connected
@@ -30,6 +33,7 @@ export const useZoomIntegration = () => {
   return {
     zoomConnection,
     syncLogs,
+    syncJobs,
     loading,
     syncing,
     syncProgress,
@@ -38,5 +42,6 @@ export const useZoomIntegration = () => {
     disconnectZoom,
     refreshConnection,
     refreshLogs,
+    refreshJobs,
   };
 };

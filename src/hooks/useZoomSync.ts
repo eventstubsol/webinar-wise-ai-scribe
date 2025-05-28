@@ -14,15 +14,30 @@ interface SyncLog {
   completed_at: string | null;
 }
 
+interface SyncJob {
+  id: string;
+  job_type: string;
+  status: string;
+  progress: number;
+  total_items: number;
+  current_item: number;
+  error_message: string | null;
+  metadata: any;
+  started_at: string;
+  completed_at: string | null;
+}
+
 interface SyncProgress {
-  stage: 'idle' | 'webinars' | 'participants' | 'completed' | 'error';
+  stage: 'idle' | 'webinars' | 'participants' | 'chat' | 'polls' | 'qa' | 'registrations' | 'completed' | 'error';
   message: string;
   progress: number;
+  details?: any;
 }
 
 export const useZoomSync = () => {
   const { user } = useAuth();
   const [syncLogs, setSyncLogs] = useState<SyncLog[]>([]);
+  const [syncJobs, setSyncJobs] = useState<SyncJob[]>([]);
   const [syncing, setSyncing] = useState(false);
   const [syncProgress, setSyncProgress] = useState<SyncProgress>({
     stage: 'idle',
@@ -33,6 +48,7 @@ export const useZoomSync = () => {
   useEffect(() => {
     if (user) {
       fetchSyncLogs();
+      fetchSyncJobs();
     }
   }, [user]);
 
@@ -43,12 +59,28 @@ export const useZoomSync = () => {
         .select('*')
         .eq('user_id', user?.id)
         .order('started_at', { ascending: false })
-        .limit(10);
+        .limit(20);
 
       if (error) throw error;
       setSyncLogs(data || []);
     } catch (error: any) {
       console.error('Error fetching sync logs:', error);
+    }
+  };
+
+  const fetchSyncJobs = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('sync_jobs')
+        .select('*')
+        .eq('user_id', user?.id)
+        .order('started_at', { ascending: false })
+        .limit(10);
+
+      if (error) throw error;
+      setSyncJobs(data || []);
+    } catch (error: any) {
+      console.error('Error fetching sync jobs:', error);
     }
   };
 
@@ -63,7 +95,7 @@ export const useZoomSync = () => {
     }
 
     setSyncing(true);
-    setSyncProgress({ stage: 'webinars', message: 'Starting webinar sync...', progress: 10 });
+    setSyncProgress({ stage: 'webinars', message: 'Starting comprehensive sync...', progress: 5 });
     
     try {
       // Get user's organization
@@ -87,86 +119,38 @@ export const useZoomSync = () => {
         throw new Error('No active Zoom connection found. Please connect your Zoom account first.');
       }
 
-      setSyncProgress({ stage: 'webinars', message: 'Syncing webinars from Zoom...', progress: 25 });
+      setSyncProgress({ stage: 'webinars', message: 'Starting comprehensive data sync...', progress: 10 });
 
-      // Sync webinars
-      const webinarsResponse = await supabase.functions.invoke('zoom-sync-webinars', {
+      // Start comprehensive sync
+      const syncResponse = await supabase.functions.invoke('zoom-sync-all', {
         body: { 
           organization_id: profile.organization_id,
           user_id: user.id 
         }
       });
 
-      if (webinarsResponse.error) {
-        throw new Error(webinarsResponse.error.message);
+      if (syncResponse.error) {
+        throw new Error(syncResponse.error.message);
       }
 
-      const webinarsResult = webinarsResponse.data;
-      console.log('Webinars sync result:', webinarsResult);
+      const result = syncResponse.data;
+      console.log('Comprehensive sync result:', result);
 
-      setSyncProgress({ stage: 'participants', message: 'Getting webinar list...', progress: 50 });
-
-      // Get recently synced webinars for participant sync
-      const { data: webinars } = await supabase
-        .from('webinars')
-        .select('id, zoom_webinar_id, title')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(5); // Sync participants for 5 most recent webinars
-
-      setSyncProgress({ stage: 'participants', message: 'Syncing participant data...', progress: 60 });
-
-      let participantsSynced = 0;
-      const totalWebinars = webinars?.length || 0;
-
-      // Sync participants for each webinar
-      for (let i = 0; i < totalWebinars; i++) {
-        const webinar = webinars![i];
-        
-        if (webinar.zoom_webinar_id) {
-          setSyncProgress({ 
-            stage: 'participants', 
-            message: `Syncing participants for "${webinar.title}"...`, 
-            progress: 60 + (i / totalWebinars) * 30 
-          });
-
-          try {
-            const participantsResponse = await supabase.functions.invoke('zoom-sync-participants', {
-              body: {
-                organization_id: profile.organization_id,
-                user_id: user.id,
-                webinar_id: webinar.id,
-                zoom_webinar_id: webinar.zoom_webinar_id,
-              }
-            });
-
-            if (participantsResponse.data?.participants_synced) {
-              participantsSynced += participantsResponse.data.participants_synced;
-            }
-
-            // Small delay between requests
-            await new Promise(resolve => setTimeout(resolve, 500));
-            
-          } catch (error) {
-            console.error(`Error syncing participants for webinar ${webinar.id}:`, error);
-            // Continue with other webinars even if one fails
-          }
-        }
-      }
-
-      setSyncProgress({ stage: 'completed', message: 'Sync completed successfully!', progress: 100 });
+      setSyncProgress({ stage: 'completed', message: 'Comprehensive sync completed!', progress: 100, details: result.summary });
 
       // Show success message with details
+      const summary = result.summary;
       toast({
-        title: "Sync Completed",
-        description: `Successfully synced ${webinarsResult.webinars_synced || 0} webinars and ${participantsSynced} participants.`,
+        title: "Comprehensive Sync Completed",
+        description: `Synced ${summary.webinars_synced} webinars with detailed data: ${summary.participants_synced} participants, ${summary.chat_messages_synced} messages, ${summary.polls_synced} polls, ${summary.qa_synced} Q&As, ${summary.registrations_synced} registrations.`,
       });
 
       // Refresh logs after successful sync
       setTimeout(() => {
         fetchSyncLogs();
+        fetchSyncJobs();
         setSyncProgress({ stage: 'idle', message: '', progress: 0 });
-      }, 2000);
+      }, 3000);
       
     } catch (error: any) {
       console.error('Sync error:', error);
@@ -191,9 +175,11 @@ export const useZoomSync = () => {
 
   return {
     syncLogs,
+    syncJobs,
     syncing,
     syncProgress,
     syncWebinarData,
     refreshLogs: fetchSyncLogs,
+    refreshJobs: fetchSyncJobs,
   };
 };

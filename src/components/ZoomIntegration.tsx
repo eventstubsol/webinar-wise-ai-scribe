@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Progress } from "@/components/ui/progress";
-import { RefreshCw, Link2, Unlink, Clock, CheckCircle, XCircle, AlertCircle, Database, Users, Settings } from "lucide-react";
+import { RefreshCw, Link2, Unlink, Clock, CheckCircle, XCircle, AlertCircle, Database, Users, Settings, MessageSquare, BarChart3, HelpCircle, UserCheck } from "lucide-react";
 import { useZoomIntegration } from "@/hooks/useZoomIntegration";
 import ZoomConnectionWizard from "./ZoomConnectionWizard";
 import { useState } from "react";
@@ -13,32 +13,19 @@ const ZoomIntegration = () => {
   const {
     zoomConnection,
     syncLogs,
-    loading,
     syncing,
     isConnected,
     syncWebinarData,
     disconnectZoom,
+    syncProgress,
+    syncJobs,
   } = useZoomIntegration();
 
   const [isWizardOpen, setIsWizardOpen] = useState(false);
 
-  // Get sync progress from the hook
-  const syncProgress = (useZoomIntegration as any)().syncProgress || { stage: 'idle', message: '', progress: 0 };
-
   const handleWizardSuccess = () => {
     setIsWizardOpen(false);
   };
-
-  if (loading) {
-    return (
-      <Card>
-        <CardContent className="flex items-center justify-center py-6">
-          <RefreshCw className="w-6 h-6 animate-spin" />
-          <span className="ml-2">Loading Zoom integration status...</span>
-        </CardContent>
-      </Card>
-    );
-  }
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -47,6 +34,7 @@ const ZoomIntegration = () => {
       case 'failed':
         return <XCircle className="w-4 h-4 text-red-500" />;
       case 'started':
+      case 'running':
         return <Clock className="w-4 h-4 text-blue-500 animate-spin" />;
       default:
         return <AlertCircle className="w-4 h-4 text-gray-500" />;
@@ -60,6 +48,7 @@ const ZoomIntegration = () => {
       case 'failed':
         return 'bg-red-100 text-red-800';
       case 'started':
+      case 'running':
         return 'bg-blue-100 text-blue-800';
       default:
         return 'bg-gray-100 text-gray-800';
@@ -72,6 +61,14 @@ const ZoomIntegration = () => {
         return <Database className="w-4 h-4" />;
       case 'participants':
         return <Users className="w-4 h-4" />;
+      case 'chat':
+        return <MessageSquare className="w-4 h-4" />;
+      case 'polls':
+        return <BarChart3 className="w-4 h-4" />;
+      case 'qa':
+        return <HelpCircle className="w-4 h-4" />;
+      case 'registrations':
+        return <UserCheck className="w-4 h-4" />;
       case 'completed':
         return <CheckCircle className="w-4 h-4 text-green-500" />;
       case 'error':
@@ -80,6 +77,16 @@ const ZoomIntegration = () => {
         return <RefreshCw className="w-4 h-4" />;
     }
   };
+
+  if (!user) {
+    return (
+      <Card>
+        <CardContent className="flex items-center justify-center py-6">
+          <span className="text-gray-600">Please log in to access Zoom integration</span>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <>
@@ -124,9 +131,9 @@ const ZoomIntegration = () => {
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
                     <div>
-                      <h4 className="font-medium">Data Synchronization</h4>
+                      <h4 className="font-medium">Comprehensive Data Sync</h4>
                       <p className="text-sm text-gray-600">
-                        Sync your latest webinar data from Zoom
+                        Sync all webinar data including participants, chat, polls, Q&A, and registrations
                       </p>
                     </div>
                     <Button
@@ -135,7 +142,7 @@ const ZoomIntegration = () => {
                       className="flex items-center space-x-2"
                     >
                       <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
-                      <span>{syncing ? 'Syncing...' : 'Sync Data'}</span>
+                      <span>{syncing ? 'Syncing...' : 'Sync All Data'}</span>
                     </Button>
                   </div>
 
@@ -149,9 +156,12 @@ const ZoomIntegration = () => {
                         </span>
                       </div>
                       <Progress value={syncProgress.progress} className="w-full" />
-                      <p className="text-xs text-gray-600">
-                        {syncProgress.progress}% complete
-                      </p>
+                      <div className="flex justify-between items-center text-xs text-gray-600">
+                        <span>{syncProgress.progress}% complete</span>
+                        {syncProgress.details && (
+                          <span>Last sync found {Object.values(syncProgress.details).reduce((a: number, b: any) => a + (typeof b === 'number' ? b : 0), 0)} total items</span>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -163,7 +173,7 @@ const ZoomIntegration = () => {
                     Not Connected
                   </Badge>
                   <p className="text-sm text-gray-600 mt-2">
-                    Connect your Zoom account to sync webinar data automatically
+                    Connect your Zoom account to sync comprehensive webinar data automatically
                   </p>
                 </div>
                 <Button 
@@ -178,18 +188,71 @@ const ZoomIntegration = () => {
           </CardContent>
         </Card>
 
+        {/* Sync Jobs */}
+        {syncJobs && syncJobs.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center space-x-2">
+                <Database className="w-5 h-5" />
+                <span>Sync Jobs</span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {syncJobs.map((job) => (
+                  <div key={job.id} className="flex items-center justify-between p-3 border rounded-lg">
+                    <div className="flex items-center space-x-3">
+                      {getStatusIcon(job.status)}
+                      <div>
+                        <div className="flex items-center space-x-2">
+                          <span className="font-medium capitalize">{job.job_type.replace('_', ' ')}</span>
+                          <Badge variant="outline" className={getStatusColor(job.status)}>
+                            {job.status}
+                          </Badge>
+                        </div>
+                        <p className="text-sm text-gray-600">
+                          {new Date(job.started_at).toLocaleString()}
+                          {job.metadata?.webinars_synced && (
+                            <span className="ml-2">• {job.metadata.webinars_synced} webinars processed</span>
+                          )}
+                        </p>
+                        {job.error_message && (
+                          <p className="text-sm text-red-600 mt-1">{job.error_message}</p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="text-right text-sm">
+                      {job.status === 'running' && (
+                        <div className="space-y-1">
+                          <div className="text-gray-500">{job.progress}%</div>
+                          <Progress value={job.progress} className="w-20" />
+                        </div>
+                      )}
+                      {job.completed_at && (
+                        <div className="text-gray-500">
+                          {Math.round((new Date(job.completed_at).getTime() - new Date(job.started_at).getTime()) / 1000)}s
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Sync History */}
         {syncLogs.length > 0 && (
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center space-x-2">
                 <Clock className="w-5 h-5" />
-                <span>Sync History</span>
+                <span>Recent Sync Activity</span>
               </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
-                {syncLogs.map((log) => (
+                {syncLogs.slice(0, 10).map((log) => (
                   <div key={log.id} className="flex items-center justify-between py-3 border-b last:border-b-0">
                     <div className="flex items-center space-x-3">
                       {getStatusIcon(log.status)}

@@ -12,42 +12,63 @@ export type Database = {
       attendees: {
         Row: {
           created_at: string
+          device_type: string | null
           duration_minutes: number | null
           email: string
           engagement_score: number | null
           id: string
+          ip_address: string | null
+          join_count: number | null
           join_time: string | null
           leave_time: string | null
+          location: string | null
           name: string
+          network_type: string | null
           organization_id: string
+          registration_id: string | null
+          total_attention_time: number | null
           updated_at: string
           webinar_id: string
           zoom_user_id: string | null
         }
         Insert: {
           created_at?: string
+          device_type?: string | null
           duration_minutes?: number | null
           email: string
           engagement_score?: number | null
           id?: string
+          ip_address?: string | null
+          join_count?: number | null
           join_time?: string | null
           leave_time?: string | null
+          location?: string | null
           name: string
+          network_type?: string | null
           organization_id: string
+          registration_id?: string | null
+          total_attention_time?: number | null
           updated_at?: string
           webinar_id: string
           zoom_user_id?: string | null
         }
         Update: {
           created_at?: string
+          device_type?: string | null
           duration_minutes?: number | null
           email?: string
           engagement_score?: number | null
           id?: string
+          ip_address?: string | null
+          join_count?: number | null
           join_time?: string | null
           leave_time?: string | null
+          location?: string | null
           name?: string
+          network_type?: string | null
           organization_id?: string
+          registration_id?: string | null
+          total_attention_time?: number | null
           updated_at?: string
           webinar_id?: string
           zoom_user_id?: string | null
@@ -207,6 +228,62 @@ export type Database = {
           },
         ]
       }
+      sync_jobs: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          current_item: number | null
+          error_message: string | null
+          id: string
+          job_type: string
+          metadata: Json | null
+          organization_id: string
+          progress: number | null
+          started_at: string | null
+          status: string
+          total_items: number | null
+          user_id: string
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          current_item?: number | null
+          error_message?: string | null
+          id?: string
+          job_type: string
+          metadata?: Json | null
+          organization_id: string
+          progress?: number | null
+          started_at?: string | null
+          status?: string
+          total_items?: number | null
+          user_id: string
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          current_item?: number | null
+          error_message?: string | null
+          id?: string
+          job_type?: string
+          metadata?: Json | null
+          organization_id?: string
+          progress?: number | null
+          started_at?: string | null
+          status?: string
+          total_items?: number | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_sync_jobs_organization"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       sync_logs: {
         Row: {
           completed_at: string | null
@@ -263,48 +340,69 @@ export type Database = {
       }
       webinars: {
         Row: {
+          agenda: string | null
           attendees_count: number | null
           created_at: string
           duration_minutes: number | null
           end_time: string | null
+          has_recording: boolean | null
           host_name: string | null
           id: string
+          join_url: string | null
           organization_id: string
+          password: string | null
+          recording_count: number | null
           registrants_count: number | null
           start_time: string | null
+          timezone: string | null
           title: string
           updated_at: string
           user_id: string | null
+          webinar_type: string | null
           zoom_webinar_id: string | null
         }
         Insert: {
+          agenda?: string | null
           attendees_count?: number | null
           created_at?: string
           duration_minutes?: number | null
           end_time?: string | null
+          has_recording?: boolean | null
           host_name?: string | null
           id?: string
+          join_url?: string | null
           organization_id: string
+          password?: string | null
+          recording_count?: number | null
           registrants_count?: number | null
           start_time?: string | null
+          timezone?: string | null
           title: string
           updated_at?: string
           user_id?: string | null
+          webinar_type?: string | null
           zoom_webinar_id?: string | null
         }
         Update: {
+          agenda?: string | null
           attendees_count?: number | null
           created_at?: string
           duration_minutes?: number | null
           end_time?: string | null
+          has_recording?: boolean | null
           host_name?: string | null
           id?: string
+          join_url?: string | null
           organization_id?: string
+          password?: string | null
+          recording_count?: number | null
           registrants_count?: number | null
           start_time?: string | null
+          timezone?: string | null
           title?: string
           updated_at?: string
           user_id?: string | null
+          webinar_type?: string | null
           zoom_webinar_id?: string | null
         }
         Relationships: [
@@ -593,6 +691,121 @@ export type Database = {
           },
           {
             foreignKeyName: "zoom_qa_sessions_webinar_id_fkey"
+            columns: ["webinar_id"]
+            isOneToOne: false
+            referencedRelation: "webinars"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      zoom_recordings: {
+        Row: {
+          created_at: string
+          download_url: string | null
+          file_size: number | null
+          file_type: string | null
+          id: string
+          organization_id: string
+          password: string | null
+          play_url: string | null
+          recording_end: string | null
+          recording_start: string | null
+          recording_type: string
+          status: string | null
+          webinar_id: string
+          zoom_recording_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          download_url?: string | null
+          file_size?: number | null
+          file_type?: string | null
+          id?: string
+          organization_id: string
+          password?: string | null
+          play_url?: string | null
+          recording_end?: string | null
+          recording_start?: string | null
+          recording_type: string
+          status?: string | null
+          webinar_id: string
+          zoom_recording_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          download_url?: string | null
+          file_size?: number | null
+          file_type?: string | null
+          id?: string
+          organization_id?: string
+          password?: string | null
+          play_url?: string | null
+          recording_end?: string | null
+          recording_start?: string | null
+          recording_type?: string
+          status?: string | null
+          webinar_id?: string
+          zoom_recording_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_recordings_webinar"
+            columns: ["webinar_id"]
+            isOneToOne: false
+            referencedRelation: "webinars"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      zoom_registrations: {
+        Row: {
+          created_at: string
+          custom_questions: Json | null
+          email: string
+          first_name: string | null
+          id: string
+          join_url: string | null
+          last_name: string | null
+          organization_id: string
+          registration_time: string | null
+          status: string
+          updated_at: string
+          webinar_id: string
+          zoom_registrant_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          custom_questions?: Json | null
+          email: string
+          first_name?: string | null
+          id?: string
+          join_url?: string | null
+          last_name?: string | null
+          organization_id: string
+          registration_time?: string | null
+          status?: string
+          updated_at?: string
+          webinar_id: string
+          zoom_registrant_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          custom_questions?: Json | null
+          email?: string
+          first_name?: string | null
+          id?: string
+          join_url?: string | null
+          last_name?: string | null
+          organization_id?: string
+          registration_time?: string | null
+          status?: string
+          updated_at?: string
+          webinar_id?: string
+          zoom_registrant_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_registrations_webinar"
             columns: ["webinar_id"]
             isOneToOne: false
             referencedRelation: "webinars"
