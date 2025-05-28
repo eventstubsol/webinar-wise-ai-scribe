@@ -4,7 +4,10 @@ import Sidebar from "@/components/Sidebar";
 import KPICards from "@/components/KPICards";
 import Charts from "@/components/Charts";
 import AttendeeTable from "@/components/AttendeeTable";
+import ZoomIntegration from "@/components/ZoomIntegration";
 import { useWebinarData } from "@/hooks/useWebinarData";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { BarChart3, Users, Settings } from "lucide-react";
 
 const Index = () => {
   const { webinars } = useWebinarData();
@@ -43,9 +46,35 @@ const Index = () => {
               )}
             </div>
             
-            <KPICards />
-            <Charts />
-            <AttendeeTable />
+            <Tabs defaultValue="dashboard" className="space-y-6">
+              <TabsList className="grid w-full grid-cols-3">
+                <TabsTrigger value="dashboard" className="flex items-center space-x-2">
+                  <BarChart3 className="w-4 h-4" />
+                  <span>Dashboard</span>
+                </TabsTrigger>
+                <TabsTrigger value="attendees" className="flex items-center space-x-2">
+                  <Users className="w-4 h-4" />
+                  <span>Attendees</span>
+                </TabsTrigger>
+                <TabsTrigger value="integration" className="flex items-center space-x-2">
+                  <Settings className="w-4 h-4" />
+                  <span>Zoom Integration</span>
+                </TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="dashboard" className="space-y-6">
+                <KPICards />
+                <Charts />
+              </TabsContent>
+
+              <TabsContent value="attendees">
+                <AttendeeTable />
+              </TabsContent>
+
+              <TabsContent value="integration">
+                <ZoomIntegration />
+              </TabsContent>
+            </Tabs>
           </div>
         </main>
       </div>
