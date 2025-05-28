@@ -385,7 +385,7 @@ export type Database = {
           {
             foreignKeyName: "webinar_authentication_webinar_id_fkey"
             columns: ["webinar_id"]
-            isOneToOne: false
+            isOneToOne: true
             referencedRelation: "webinars"
             referencedColumns: ["id"]
           },
@@ -479,7 +479,7 @@ export type Database = {
           {
             foreignKeyName: "webinar_notifications_webinar_id_fkey"
             columns: ["webinar_id"]
-            isOneToOne: false
+            isOneToOne: true
             referencedRelation: "webinars"
             referencedColumns: ["id"]
           },
@@ -579,7 +579,7 @@ export type Database = {
           {
             foreignKeyName: "webinar_qa_settings_webinar_id_fkey"
             columns: ["webinar_id"]
-            isOneToOne: false
+            isOneToOne: true
             referencedRelation: "webinars"
             referencedColumns: ["id"]
           },
@@ -635,7 +635,7 @@ export type Database = {
           {
             foreignKeyName: "webinar_recurrence_webinar_id_fkey"
             columns: ["webinar_id"]
-            isOneToOne: false
+            isOneToOne: true
             referencedRelation: "webinars"
             referencedColumns: ["id"]
           },
@@ -763,7 +763,7 @@ export type Database = {
           {
             foreignKeyName: "webinar_settings_webinar_id_fkey"
             columns: ["webinar_id"]
-            isOneToOne: false
+            isOneToOne: true
             referencedRelation: "webinars"
             referencedColumns: ["id"]
           },

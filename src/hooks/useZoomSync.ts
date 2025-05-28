@@ -57,7 +57,7 @@ export const useZoomSync = () => {
     });
     
     try {
-      console.log('Starting sync for user:', user.id);
+      console.log('Starting comprehensive sync for user:', user.id);
       
       // Get user's organization
       const { data: profile, error: profileError } = await supabase
@@ -90,26 +90,26 @@ export const useZoomSync = () => {
 
       setSyncProgress({ 
         stage: 'webinars', 
-        message: 'Starting comprehensive sync...', 
+        message: 'Starting comprehensive webinar sync...', 
         progress: 10,
         apiRequestsUsed: 0
       });
 
-      console.log('Calling zoom-sync-all function...');
+      console.log('Calling zoom-comprehensive-rate-limited-sync function...');
 
-      // Call the correct function name: zoom-sync-all
-      const syncResponse = await supabase.functions.invoke('zoom-sync-all', {
+      // Call the rate-limited comprehensive sync function
+      const syncResponse = await supabase.functions.invoke('zoom-comprehensive-rate-limited-sync', {
         body: { 
           organization_id: profile.organization_id,
           user_id: user.id 
         }
       });
 
-      console.log('Sync response:', syncResponse);
+      console.log('Comprehensive sync response:', syncResponse);
 
       if (syncResponse.error) {
         console.error('Sync function error:', syncResponse.error);
-        throw new Error(syncResponse.error.message || 'Sync function failed');
+        throw new Error(syncResponse.error.message || 'Comprehensive sync function failed');
       }
 
       const result = syncResponse.data;
@@ -118,22 +118,25 @@ export const useZoomSync = () => {
       // Handle the response structure properly
       if (result && result.success) {
         toast({
-          title: "Sync Started",
-          description: "Your data sync is running. This may take a few minutes to complete.",
+          title: "Comprehensive Sync Started",
+          description: "Your comprehensive webinar data sync is running. This may take several minutes to complete.",
         });
 
         // Show summary if available
         if (result.summary) {
           const summary = result.summary;
-          console.log('Sync summary:', summary);
+          console.log('Comprehensive sync summary:', summary);
           
           if (summary.webinars_synced !== undefined) {
             console.log(`Webinars synced: ${summary.webinars_synced}`);
           }
+          if (summary.api_requests_made !== undefined) {
+            console.log(`API requests made: ${summary.api_requests_made}`);
+          }
         }
       } else {
-        console.error('Sync failed with result:', result);
-        throw new Error(result?.error || 'Unknown error occurred during sync');
+        console.error('Comprehensive sync failed with result:', result);
+        throw new Error(result?.error || 'Unknown error occurred during comprehensive sync');
       }
 
       // Refresh logs after sync starts
@@ -141,9 +144,9 @@ export const useZoomSync = () => {
       refreshJobs();
       
     } catch (error: any) {
-      console.error('Sync error:', error);
+      console.error('Comprehensive sync error:', error);
       
-      setSyncProgress({ stage: 'error', message: 'Sync failed', progress: 0 });
+      setSyncProgress({ stage: 'error', message: 'Comprehensive sync failed', progress: 0 });
       setSyncing(false);
       
       // Check if it's a permissions error
@@ -155,8 +158,8 @@ export const useZoomSync = () => {
         });
       } else {
         toast({
-          title: "Sync Failed",
-          description: error.message || "Failed to sync webinar data. Please check your Zoom connection and try again.",
+          title: "Comprehensive Sync Failed",
+          description: error.message || "Failed to sync comprehensive webinar data. Please check your Zoom connection and try again.",
           variant: "destructive",
         });
       }

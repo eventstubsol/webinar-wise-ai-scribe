@@ -36,31 +36,64 @@ export const useWebinarData = () => {
 
       try {
         setLoading(true);
+        setError(null);
         
-        // Fetch webinars
+        // Fetch webinars with better error handling
         const { data: webinarsData, error: webinarsError } = await supabase
           .from('webinars')
-          .select('*')
-          .order('created_at', { ascending: false });
+          .select('id, title, host_name, start_time, end_time, duration_minutes, attendees_count, registrants_count')
+          .order('created_at', { ascending: false })
+          .limit(20);
 
-        if (webinarsError) throw webinarsError;
+        if (webinarsError) {
+          console.error('Error fetching webinars:', webinarsError);
+          throw new Error(`Failed to fetch webinars: ${webinarsError.message}`);
+        }
 
-        setWebinars(webinarsData || []);
+        const transformedWebinars = (webinarsData || []).map(w => ({
+          id: w.id,
+          title: w.title || 'Untitled Webinar',
+          host_name: w.host_name,
+          start_time: w.start_time,
+          end_time: w.end_time,
+          duration_minutes: w.duration_minutes,
+          attendees_count: w.attendees_count || 0,
+          registrants_count: w.registrants_count || 0,
+        }));
+
+        setWebinars(transformedWebinars);
 
         // If we have webinars, fetch attendees for the most recent one
-        if (webinarsData && webinarsData.length > 0) {
+        if (transformedWebinars.length > 0) {
           const { data: attendeesData, error: attendeesError } = await supabase
             .from('attendees')
-            .select('*')
-            .eq('webinar_id', webinarsData[0].id)
-            .order('engagement_score', { ascending: false });
+            .select('id, name, email, join_time, duration_minutes, engagement_score')
+            .eq('webinar_id', transformedWebinars[0].id)
+            .order('engagement_score', { ascending: false, nullsLast: true })
+            .limit(50);
 
-          if (attendeesError) throw attendeesError;
-          setAttendees(attendeesData || []);
+          if (attendeesError) {
+            console.error('Error fetching attendees:', attendeesError);
+            // Don't throw here, just log the error and continue with empty attendees
+            setAttendees([]);
+          } else {
+            const transformedAttendees = (attendeesData || []).map(a => ({
+              id: a.id,
+              name: a.name || 'Unknown Attendee',
+              email: a.email || '',
+              join_time: a.join_time,
+              duration_minutes: a.duration_minutes || 0,
+              engagement_score: a.engagement_score || 0,
+            }));
+            setAttendees(transformedAttendees);
+          }
+        } else {
+          setAttendees([]);
         }
       } catch (err: any) {
-        setError(err.message);
-        console.error('Error fetching webinar data:', err);
+        const errorMessage = err.message || 'Failed to fetch webinar data';
+        setError(errorMessage);
+        console.error('Error in useWebinarData:', err);
       } finally {
         setLoading(false);
       }
@@ -69,5 +102,18 @@ export const useWebinarData = () => {
     fetchData();
   }, [user]);
 
-  return { webinars, attendees, loading, error };
+  const refreshData = async () => {
+    setLoading(true);
+    await fetchData();
+  };
+
+  return { 
+    webinars, 
+    attendees, 
+    loading, 
+    error, 
+    refreshData,
+    totalWebinars: webinars.length,
+    totalAttendees: attendees.length
+  };
 };
