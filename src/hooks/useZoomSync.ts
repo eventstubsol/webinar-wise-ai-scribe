@@ -28,10 +28,12 @@ interface SyncJob {
 }
 
 interface SyncProgress {
-  stage: 'idle' | 'webinars' | 'participants' | 'chat' | 'polls' | 'qa' | 'registrations' | 'completed' | 'error';
+  stage: 'idle' | 'webinars' | 'webinar_details' | 'participants' | 'chat' | 'polls' | 'qa' | 'registrations' | 'completed' | 'error';
   message: string;
   progress: number;
   details?: any;
+  apiRequestsUsed?: number;
+  estimatedTimeRemaining?: string;
 }
 
 export const useZoomSync = () => {
@@ -51,6 +53,67 @@ export const useZoomSync = () => {
       fetchSyncJobs();
     }
   }, [user]);
+
+  useEffect(() => {
+    if (syncing) {
+      // Poll for sync job updates while syncing
+      const interval = setInterval(() => {
+        fetchSyncJobs();
+      }, 2000);
+
+      return () => clearInterval(interval);
+    }
+  }, [syncing]);
+
+  // Update progress based on latest sync job
+  useEffect(() => {
+    if (syncJobs.length > 0) {
+      const latestJob = syncJobs[0];
+      if (latestJob.status === 'running' && latestJob.job_type === 'comprehensive_rate_limited_sync') {
+        const metadata = latestJob.metadata || {};
+        setSyncProgress({
+          stage: metadata.current_stage || 'webinars',
+          message: metadata.stage_message || 'Processing...',
+          progress: latestJob.progress || 0,
+          details: {
+            webinars_found: metadata.webinars_found,
+            webinars_synced: metadata.webinars_synced,
+            detailed_sync_count: metadata.detailed_sync_count
+          },
+          apiRequestsUsed: metadata.api_requests_made,
+          estimatedTimeRemaining: calculateEstimatedTime(latestJob.progress, latestJob.started_at)
+        });
+      } else if (latestJob.status === 'completed' && syncing) {
+        setSyncProgress({
+          stage: 'completed',
+          message: 'Comprehensive sync completed successfully!',
+          progress: 100,
+          details: latestJob.metadata
+        });
+        setSyncing(false);
+      } else if (latestJob.status === 'failed' && syncing) {
+        setSyncProgress({
+          stage: 'error',
+          message: latestJob.error_message || 'Sync failed',
+          progress: 0
+        });
+        setSyncing(false);
+      }
+    }
+  }, [syncJobs, syncing]);
+
+  const calculateEstimatedTime = (progress: number, startedAt: string): string => {
+    if (progress <= 0) return 'Calculating...';
+    
+    const elapsed = Date.now() - new Date(startedAt).getTime();
+    const totalEstimated = (elapsed / progress) * 100;
+    const remaining = totalEstimated - elapsed;
+    
+    if (remaining <= 0) return 'Almost done...';
+    
+    const minutes = Math.ceil(remaining / (1000 * 60));
+    return `~${minutes} min remaining`;
+  };
 
   const fetchSyncLogs = async () => {
     try {
@@ -95,7 +158,12 @@ export const useZoomSync = () => {
     }
 
     setSyncing(true);
-    setSyncProgress({ stage: 'webinars', message: 'Starting comprehensive sync...', progress: 5 });
+    setSyncProgress({ 
+      stage: 'webinars', 
+      message: 'Starting comprehensive rate-limited sync...', 
+      progress: 5,
+      apiRequestsUsed: 0
+    });
     
     try {
       // Get user's organization
@@ -119,10 +187,15 @@ export const useZoomSync = () => {
         throw new Error('No active Zoom connection found. Please connect your Zoom account first.');
       }
 
-      setSyncProgress({ stage: 'webinars', message: 'Starting comprehensive data sync...', progress: 10 });
+      setSyncProgress({ 
+        stage: 'webinars', 
+        message: 'Starting comprehensive rate-limited sync...', 
+        progress: 10,
+        apiRequestsUsed: 0
+      });
 
-      // Start comprehensive sync
-      const syncResponse = await supabase.functions.invoke('zoom-sync-all', {
+      // Start comprehensive rate-limited sync
+      const syncResponse = await supabase.functions.invoke('zoom-comprehensive-sync', {
         body: { 
           organization_id: profile.organization_id,
           user_id: user.id 
@@ -134,28 +207,23 @@ export const useZoomSync = () => {
       }
 
       const result = syncResponse.data;
-      console.log('Comprehensive sync result:', result);
+      console.log('Comprehensive rate-limited sync result:', result);
 
-      setSyncProgress({ stage: 'completed', message: 'Comprehensive sync completed!', progress: 100, details: result.summary });
-
-      // Show success message with details
-      const summary = result.summary;
+      // Success message will be handled by the useEffect that monitors sync jobs
       toast({
-        title: "Comprehensive Sync Completed",
-        description: `Synced ${summary.webinars_synced} webinars with detailed data: ${summary.participants_synced} participants, ${summary.chat_messages_synced} messages, ${summary.polls_synced} polls, ${summary.qa_synced} Q&As, ${summary.registrations_synced} registrations.`,
+        title: "Comprehensive Sync Started",
+        description: "Your data sync is running with intelligent rate limiting. This may take several minutes for large datasets.",
       });
 
-      // Refresh logs after successful sync
-      setTimeout(() => {
-        fetchSyncLogs();
-        fetchSyncJobs();
-        setSyncProgress({ stage: 'idle', message: '', progress: 0 });
-      }, 3000);
+      // Refresh logs after sync starts
+      fetchSyncLogs();
+      fetchSyncJobs();
       
     } catch (error: any) {
       console.error('Sync error:', error);
       
       setSyncProgress({ stage: 'error', message: 'Sync failed', progress: 0 });
+      setSyncing(false);
       
       toast({
         title: "Sync Failed",
@@ -166,10 +234,7 @@ export const useZoomSync = () => {
       // Reset progress after error
       setTimeout(() => {
         setSyncProgress({ stage: 'idle', message: '', progress: 0 });
-      }, 3000);
-      
-    } finally {
-      setSyncing(false);
+      }, 5000);
     }
   };
 

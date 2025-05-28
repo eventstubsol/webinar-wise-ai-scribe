@@ -60,6 +60,7 @@ const ZoomIntegration = () => {
   const getSyncStageIcon = (stage: string) => {
     switch (stage) {
       case 'webinars':
+      case 'webinar_details':
         return <Database className="w-4 h-4" />;
       case 'participants':
         return <Users className="w-4 h-4" />;
@@ -133,9 +134,9 @@ const ZoomIntegration = () => {
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
                     <div>
-                      <h4 className="font-medium">Comprehensive Data Sync</h4>
+                      <h4 className="font-medium">Rate-Limited Comprehensive Sync</h4>
                       <p className="text-sm text-gray-600">
-                        Sync all webinar data including participants, chat, polls, Q&A, and registrations
+                        Intelligent sync that respects Zoom's API limits while fetching all webinar data
                       </p>
                     </div>
                     <Button
@@ -144,26 +145,59 @@ const ZoomIntegration = () => {
                       className="flex items-center space-x-2"
                     >
                       <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
-                      <span>{syncing ? 'Syncing...' : 'Sync All Data'}</span>
+                      <span>{syncing ? 'Syncing...' : 'Start Smart Sync'}</span>
                     </Button>
                   </div>
 
-                  {/* Sync Progress */}
+                  {/* Enhanced Sync Progress */}
                   {syncing && syncProgress.stage !== 'idle' && (
                     <div className="space-y-3 p-4 bg-blue-50 rounded-lg border">
-                      <div className="flex items-center space-x-2">
-                        {getSyncStageIcon(syncProgress.stage)}
-                        <span className="font-medium text-sm">
-                          {syncProgress.message}
-                        </span>
-                      </div>
-                      <Progress value={syncProgress.progress} className="w-full" />
-                      <div className="flex justify-between items-center text-xs text-gray-600">
-                        <span>{syncProgress.progress}% complete</span>
-                        {syncProgress.details && (
-                          <span>Last sync found {String(Object.values(syncProgress.details).reduce((a: number, b: any) => a + (typeof b === 'number' ? b : 0), 0))} total items</span>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-2">
+                          {getSyncStageIcon(syncProgress.stage)}
+                          <span className="font-medium text-sm">
+                            {syncProgress.message}
+                          </span>
+                        </div>
+                        {syncProgress.estimatedTimeRemaining && (
+                          <span className="text-xs text-gray-500">
+                            {syncProgress.estimatedTimeRemaining}
+                          </span>
                         )}
                       </div>
+                      <Progress value={syncProgress.progress} className="w-full" />
+                      <div className="grid grid-cols-2 gap-4 text-xs text-gray-600">
+                        <div>
+                          <span className="font-medium">{syncProgress.progress}% complete</span>
+                        </div>
+                        {syncProgress.apiRequestsUsed && (
+                          <div className="text-right">
+                            <span>API calls: {syncProgress.apiRequestsUsed}</span>
+                          </div>
+                        )}
+                      </div>
+                      {syncProgress.details && (
+                        <div className="grid grid-cols-3 gap-2 text-xs bg-white p-2 rounded border">
+                          {syncProgress.details.webinars_found && (
+                            <div className="text-center">
+                              <div className="font-medium">{String(syncProgress.details.webinars_found)}</div>
+                              <div className="text-gray-500">Found</div>
+                            </div>
+                          )}
+                          {syncProgress.details.webinars_synced && (
+                            <div className="text-center">
+                              <div className="font-medium">{String(syncProgress.details.webinars_synced)}</div>
+                              <div className="text-gray-500">Synced</div>
+                            </div>
+                          )}
+                          {syncProgress.details.detailed_sync_count && (
+                            <div className="text-center">
+                              <div className="font-medium">{String(syncProgress.details.detailed_sync_count)}</div>
+                              <div className="text-gray-500">Detailed</div>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -190,13 +224,16 @@ const ZoomIntegration = () => {
           </CardContent>
         </Card>
 
-        {/* Sync Jobs */}
+        {/* Enhanced Sync Jobs Display */}
         {syncJobs && syncJobs.length > 0 && (
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center space-x-2">
                 <Database className="w-5 h-5" />
                 <span>Sync Jobs</span>
+                <Badge variant="outline" className="ml-auto">
+                  {syncJobs.filter(job => job.status === 'running').length} active
+                </Badge>
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -207,7 +244,9 @@ const ZoomIntegration = () => {
                       {getStatusIcon(job.status)}
                       <div>
                         <div className="flex items-center space-x-2">
-                          <span className="font-medium capitalize">{job.job_type.replace('_', ' ')}</span>
+                          <span className="font-medium">
+                            {job.job_type === 'comprehensive_rate_limited_sync' ? 'Smart Sync' : job.job_type.replace('_', ' ')}
+                          </span>
                           <Badge variant="outline" className={getStatusColor(job.status)}>
                             {job.status}
                           </Badge>
@@ -215,11 +254,17 @@ const ZoomIntegration = () => {
                         <p className="text-sm text-gray-600">
                           {new Date(job.started_at).toLocaleString()}
                           {job.metadata?.webinars_synced && (
-                            <span className="ml-2">• {String(job.metadata.webinars_synced)} webinars processed</span>
+                            <span className="ml-2">• {String(job.metadata.webinars_synced)} webinars</span>
+                          )}
+                          {job.metadata?.api_requests_made && (
+                            <span className="ml-2">• {String(job.metadata.api_requests_made)} API calls</span>
                           )}
                         </p>
                         {job.error_message && (
                           <p className="text-sm text-red-600 mt-1">{job.error_message}</p>
+                        )}
+                        {job.metadata?.stage_message && job.status === 'running' && (
+                          <p className="text-sm text-blue-600 mt-1">{job.metadata.stage_message}</p>
                         )}
                       </div>
                     </div>
