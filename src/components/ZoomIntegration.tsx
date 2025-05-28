@@ -6,10 +6,12 @@ import { Separator } from "@/components/ui/separator";
 import { Progress } from "@/components/ui/progress";
 import { RefreshCw, Link2, Unlink, Clock, CheckCircle, XCircle, AlertCircle, Database, Users, Settings, MessageSquare, BarChart3, HelpCircle, UserCheck } from "lucide-react";
 import { useZoomIntegration } from "@/hooks/useZoomIntegration";
+import { useAuth } from "@/hooks/useAuth";
 import ZoomConnectionWizard from "./ZoomConnectionWizard";
 import { useState } from "react";
 
 const ZoomIntegration = () => {
+  const { user } = useAuth();
   const {
     zoomConnection,
     syncLogs,
@@ -159,7 +161,7 @@ const ZoomIntegration = () => {
                       <div className="flex justify-between items-center text-xs text-gray-600">
                         <span>{syncProgress.progress}% complete</span>
                         {syncProgress.details && (
-                          <span>Last sync found {Object.values(syncProgress.details).reduce((a: number, b: any) => a + (typeof b === 'number' ? b : 0), 0)} total items</span>
+                          <span>Last sync found {String(Object.values(syncProgress.details).reduce((a: number, b: any) => a + (typeof b === 'number' ? b : 0), 0))} total items</span>
                         )}
                       </div>
                     </div>
@@ -213,7 +215,7 @@ const ZoomIntegration = () => {
                         <p className="text-sm text-gray-600">
                           {new Date(job.started_at).toLocaleString()}
                           {job.metadata?.webinars_synced && (
-                            <span className="ml-2">• {job.metadata.webinars_synced} webinars processed</span>
+                            <span className="ml-2">• {String(job.metadata.webinars_synced)} webinars processed</span>
                           )}
                         </p>
                         {job.error_message && (
