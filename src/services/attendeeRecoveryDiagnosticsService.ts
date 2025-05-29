@@ -173,14 +173,16 @@ export const performProgressiveRecovery = async (
 
     if (!webinar) continue;
 
-    // Call the enhanced sync function with progressive options
-    const { data, error } = await supabase.functions.invoke('zoom-sync-participants-progressive', {
+    console.log(`🎯 Starting progressive recovery for: ${webinar.title}`);
+
+    // Use the aggressive sync function instead of progressive for maximum data recovery
+    const { data, error } = await supabase.functions.invoke('zoom-sync-participants', {
       body: {
         organization_id: profile.organization_id,
         user_id: userId,
         webinar_id: webinar.id,
         zoom_webinar_id: webinar.zoom_webinar_id,
-        progressive_options: options
+        aggressive_mode: true // Signal for maximum recovery
       }
     });
 
@@ -188,7 +190,8 @@ export const performProgressiveRecovery = async (
       webinar_id: webinarId,
       success: !error,
       data,
-      error: error?.message
+      error: error?.message,
+      recovery_type: 'aggressive_sync'
     });
   }
 

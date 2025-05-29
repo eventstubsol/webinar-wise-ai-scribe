@@ -1,4 +1,3 @@
-
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
@@ -19,6 +18,21 @@ interface ZoomParticipant {
   attentiveness_score?: string
   failover?: boolean
   status?: string
+}
+
+// Enhanced recovery statistics tracking
+interface RecoveryStats {
+  total_api_calls: number
+  total_pages_processed: number
+  participants_found: number
+  participants_after_dedup: number
+  participants_stored: number
+  bots_filtered: number
+  invalid_emails_filtered: number
+  validation_errors: number
+  database_errors: number
+  endpoints_tried: string[]
+  success_endpoint: string
 }
 
 // Token management functions
@@ -53,7 +67,7 @@ async function decryptCredential(encryptedText: string, key: string): Promise<st
 }
 
 async function getZoomAccessToken(userId: string, supabaseClient: any): Promise<string> {
-  console.log('Getting Zoom access token for user:', userId)
+  console.log('Getting Zoom access token for aggressive recovery...')
   
   const { data: connection, error: connectionError } = await supabaseClient
     .from('zoom_connections')
@@ -101,10 +115,11 @@ async function getZoomAccessToken(userId: string, supabaseClient: any): Promise<
   }
 }
 
-async function fetchParticipantsWithRetry(url: string, accessToken: string, maxRetries = 3): Promise<any> {
+// Enhanced fetch with aggressive pagination and retry logic
+async function fetchParticipantsAggressively(url: string, accessToken: string, maxRetries = 5): Promise<any> {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      console.log(`📡 Fetching participants (attempt ${attempt}/${maxRetries}): ${url}`)
+      console.log(`🚀 Aggressive fetch (attempt ${attempt}/${maxRetries}): ${url}`)
       
       const response = await fetch(url, {
         headers: {
@@ -117,8 +132,8 @@ async function fetchParticipantsWithRetry(url: string, accessToken: string, maxR
       
       if (!response.ok) {
         if (response.status === 429) {
-          // Rate limit - wait longer before retry
-          const waitTime = Math.pow(2, attempt) * 2000 // Exponential backoff
+          // Exponential backoff for rate limiting
+          const waitTime = Math.pow(2, attempt) * 3000
           console.log(`⏸️ Rate limited, waiting ${waitTime}ms before retry...`)
           await new Promise(resolve => setTimeout(resolve, waitTime))
           continue
@@ -132,7 +147,7 @@ async function fetchParticipantsWithRetry(url: string, accessToken: string, maxR
         throw new Error(`Zoom API error (${response.status}): ${data.message || data.error}`)
       }
 
-      console.log(`✅ Successfully fetched participants data`)
+      console.log(`✅ Successfully fetched participants data (${data.participants?.length || 0} participants)`)
       return data
       
     } catch (error) {
@@ -142,79 +157,92 @@ async function fetchParticipantsWithRetry(url: string, accessToken: string, maxR
         throw error
       }
       
-      // Wait before retry with exponential backoff
-      const waitTime = Math.pow(2, attempt) * 1000
+      // Progressive wait time
+      const waitTime = Math.pow(2, attempt) * 1500
       console.log(`⏸️ Waiting ${waitTime}ms before retry...`)
       await new Promise(resolve => setTimeout(resolve, waitTime))
     }
   }
 }
 
-// Fixed engagement score calculation that respects database constraints
-function calculateEngagementScore(participant: ZoomParticipant, maxDuration: number): number {
+// Enhanced engagement score calculation with strict bounds
+function calculateEngagementScoreSafe(participant: ZoomParticipant, maxDuration: number): number {
   let engagementScore = 0
   
   if (maxDuration > 0 && participant.duration) {
-    // Base score from duration (0-7 points to leave room for bonuses)
+    // Base score from duration (0-7 points)
     const durationRatio = Math.min(1, participant.duration / maxDuration)
     engagementScore += durationRatio * 7
     
     // Bonus for attentiveness score (0-2 points)
     if (participant.attentiveness_score) {
       const attentiveness = parseFloat(participant.attentiveness_score)
-      if (!isNaN(attentiveness)) {
+      if (!isNaN(attentiveness) && attentiveness >= 0 && attentiveness <= 100) {
         engagementScore += Math.min(2, (attentiveness / 100) * 2)
       }
     }
   }
   
-  // Ensure the score never exceeds 9.99 (database constraint is numeric(3,2))
+  // CRITICAL: Ensure score never exceeds database constraint (9.99)
   const finalScore = Math.min(9.99, Math.max(0, engagementScore))
+  const roundedScore = Math.round(finalScore * 100) / 100
   
-  console.log(`📊 Engagement calculation for ${participant.name}: duration=${participant.duration}s, max=${maxDuration}s, attentiveness=${participant.attentiveness_score}, final=${finalScore}`)
+  console.log(`📊 Safe engagement: ${participant.name}: duration=${participant.duration}s, max=${maxDuration}s, attentiveness=${participant.attentiveness_score}, final=${roundedScore}`)
   
-  return Math.round(finalScore * 100) / 100 // Round to 2 decimal places
+  return roundedScore
 }
 
-// Improved bot detection with more reasonable thresholds
-function isLikelyBot(participant: ZoomParticipant): boolean {
+// Lenient bot detection for maximum data recovery
+function isLikelyBotLenient(participant: ZoomParticipant): boolean {
   const name = participant.name || ''
   const email = participant.user_email || ''
   
-  // Check for obvious bot indicators in name
-  const botNameIndicators = [
-    'bot', 'test', 'zoom', 'recording', 'admin', 'system',
-    'automated', 'service', 'api', 'webhook', 'integration'
+  // Only filter OBVIOUS bots to maximize data recovery
+  const obviousBotIndicators = [
+    'zoom recorder', 'zoom recording', 'system test', 'api test',
+    'webhook test', 'automated system', 'bot test'
   ]
   
-  const nameHasBotIndicator = botNameIndicators.some(indicator => 
-    name.toLowerCase().includes(indicator)
+  const isObviousBot = obviousBotIndicators.some(indicator => 
+    name.toLowerCase().includes(indicator) || email.toLowerCase().includes(indicator)
   )
   
-  // Check for test/bot email patterns
-  const botEmailIndicators = [
-    'test@', 'bot@', 'noreply@', 'system@', 'admin@',
-    'donotreply@', 'automated@', 'service@'
-  ]
+  // Only filter if BOTH obvious bot indicator AND extremely short duration (< 3 seconds)
+  const extremelyShortDuration = (participant.duration || 0) < 3
+  const shouldFilter = isObviousBot && extremelyShortDuration
   
-  const emailHasBotIndicator = botEmailIndicators.some(indicator =>
-    email.toLowerCase().includes(indicator)
-  )
-  
-  // Very short duration (less than 10 seconds) combined with bot indicators
-  const veryShortDuration = (participant.duration || 0) < 10
-  const hasLowDuration = (participant.duration || 0) < 5 // Only filter out extremely short sessions
-  
-  // More sophisticated bot detection
-  const isBot = (nameHasBotIndicator || emailHasBotIndicator) || 
-                (hasLowDuration && (nameHasBotIndicator || emailHasBotIndicator)) ||
-                (veryShortDuration && name.toLowerCase() === 'zoom')
-  
-  if (isBot) {
-    console.log(`🤖 Detected bot: ${name} (${email}) - duration: ${participant.duration}s`)
+  if (shouldFilter) {
+    console.log(`🤖 Filtered obvious bot: ${name} (${email}) - duration: ${participant.duration}s`)
   }
   
-  return isBot
+  return shouldFilter
+}
+
+// Enhanced email validation with lenient mode
+function isValidEmailLenient(email: string): boolean {
+  if (!email || email.trim() === '') return false
+  
+  // Very lenient validation - just needs @ symbol and some text
+  const basicEmailPattern = /.+@.+/
+  const isValid = basicEmailPattern.test(email.trim())
+  
+  if (!isValid) {
+    console.log(`📧 Invalid email filtered: "${email}"`)
+  }
+  
+  return isValid
+}
+
+// Enhanced data sanitization
+function sanitizeParticipantData(participant: ZoomParticipant): any {
+  return {
+    zoom_user_id: (participant.user_id || participant.id || '').substring(0, 255),
+    name: (participant.name || 'Unknown Attendee').substring(0, 255),
+    email: (participant.user_email || '').toLowerCase().trim().substring(0, 255),
+    join_time: participant.join_time,
+    leave_time: participant.leave_time,
+    duration_minutes: Math.max(0, Math.round((participant.duration || 0) / 60)),
+  }
 }
 
 serve(async (req) => {
@@ -234,7 +262,22 @@ serve(async (req) => {
       throw new Error('Organization ID, User ID, and Zoom webinar ID are required')
     }
 
-    console.log('🚀 Starting enhanced participant sync with improved error handling for webinar:', zoom_webinar_id)
+    console.log('🚀 Starting AGGRESSIVE participant recovery for webinar:', zoom_webinar_id)
+
+    // Initialize recovery statistics
+    const recoveryStats: RecoveryStats = {
+      total_api_calls: 0,
+      total_pages_processed: 0,
+      participants_found: 0,
+      participants_after_dedup: 0,
+      participants_stored: 0,
+      bots_filtered: 0,
+      invalid_emails_filtered: 0,
+      validation_errors: 0,
+      database_errors: 0,
+      endpoints_tried: [],
+      success_endpoint: ''
+    }
 
     // Get access token
     const accessToken = await getZoomAccessToken(user_id, supabaseClient)
@@ -246,32 +289,33 @@ serve(async (req) => {
         organization_id,
         user_id,
         webinar_id,
-        sync_type: 'participants',
+        sync_type: 'participants_aggressive',
         status: 'started',
       })
       .select()
       .single()
 
-    console.log('📝 Created sync log:', syncLog?.id)
+    console.log('📝 Created aggressive sync log:', syncLog?.id)
 
-    // Try both API endpoints for maximum compatibility
+    // PHASE 1: AGGRESSIVE MULTI-ENDPOINT STRATEGY
     let allParticipants: ZoomParticipant[] = []
-    let totalFound = 0
-    let apiUsed = 'unknown'
+    let successfulEndpoint = ''
     
-    // First try the correct past webinars endpoint
+    // Strategy 1: Past webinars endpoint with maximum pagination
     try {
-      console.log('🔍 Trying past webinars participants endpoint...')
+      console.log('🔍 Strategy 1: Aggressive past webinars participants endpoint...')
+      recoveryStats.endpoints_tried.push('past_webinars')
       
       let nextPageToken = ''
       let pageCount = 0
+      const maxPages = 200 // Increased safety limit
       
       do {
         pageCount++
-        console.log(`📄 Fetching page ${pageCount} of participants...`)
+        console.log(`📄 Aggressive pagination - Page ${pageCount}/${maxPages}...`)
         
         const params = new URLSearchParams({
-          page_size: '300',
+          page_size: '1000', // MAXIMUM page size
           include_fields: 'registrant_id,status,join_time,leave_time,duration,attentiveness_score,failover'
         })
         
@@ -280,38 +324,46 @@ serve(async (req) => {
         }
 
         const url = `https://api.zoom.us/v2/past_webinars/${zoom_webinar_id}/participants?${params}`
-        const data = await fetchParticipantsWithRetry(url, accessToken)
+        const data = await fetchParticipantsAggressively(url, accessToken)
+        
+        recoveryStats.total_api_calls++
+        recoveryStats.total_pages_processed++
         
         const participants = data.participants || []
         allParticipants = allParticipants.concat(participants)
         nextPageToken = data.next_page_token || ''
-        totalFound = data.total_records || allParticipants.length
         
-        console.log(`📊 Page ${pageCount}: Found ${participants.length} participants (Total so far: ${allParticipants.length})`)
+        console.log(`📊 Page ${pageCount}: Found ${participants.length} participants (Total: ${allParticipants.length})`)
         
-        // Add delay to respect rate limits
-        await new Promise(resolve => setTimeout(resolve, 300))
+        // Minimal delay to respect rate limits
+        await new Promise(resolve => setTimeout(resolve, 200))
         
-      } while (nextPageToken && pageCount < 50)
+      } while (nextPageToken && pageCount < maxPages)
 
-      apiUsed = 'past_webinars'
-      console.log(`✅ Past webinars API successful: ${allParticipants.length} participants found`)
+      successfulEndpoint = 'past_webinars'
+      recoveryStats.participants_found = allParticipants.length
+      console.log(`✅ Past webinars strategy successful: ${allParticipants.length} participants found`)
       
     } catch (pastWebinarError) {
-      console.log('⚠️ Past webinars endpoint failed, trying metrics endpoint as fallback...')
+      console.log('⚠️ Past webinars endpoint failed, trying metrics endpoint...')
       console.error('Past webinar error:', pastWebinarError)
       
-      // Fallback to metrics endpoint
+      // Strategy 2: Metrics endpoint as fallback
       try {
+        console.log('🔍 Strategy 2: Metrics endpoint with aggressive pagination...')
+        recoveryStats.endpoints_tried.push('metrics')
+        allParticipants = [] // Reset
+        
         let nextPageToken = ''
         let pageCount = 0
+        const maxPages = 200
         
         do {
           pageCount++
-          console.log(`📄 Fetching page ${pageCount} of participants (metrics API)...`)
+          console.log(`📄 Metrics pagination - Page ${pageCount}/${maxPages}...`)
           
           const params = new URLSearchParams({
-            page_size: '300',
+            page_size: '1000', // MAXIMUM page size
           })
           
           if (nextPageToken) {
@@ -319,151 +371,146 @@ serve(async (req) => {
           }
 
           const url = `https://api.zoom.us/v2/metrics/webinars/${zoom_webinar_id}/participants?${params}`
-          const data = await fetchParticipantsWithRetry(url, accessToken)
+          const data = await fetchParticipantsAggressively(url, accessToken)
+          
+          recoveryStats.total_api_calls++
+          recoveryStats.total_pages_processed++
           
           const participants = data.participants || []
           allParticipants = allParticipants.concat(participants)
           nextPageToken = data.next_page_token || ''
           
-          console.log(`📊 Page ${pageCount}: Found ${participants.length} participants (Total so far: ${allParticipants.length})`)
+          console.log(`📊 Metrics Page ${pageCount}: Found ${participants.length} participants (Total: ${allParticipants.length})`)
           
-          await new Promise(resolve => setTimeout(resolve, 300))
+          await new Promise(resolve => setTimeout(resolve, 200))
           
-        } while (nextPageToken && pageCount < 50)
+        } while (nextPageToken && pageCount < maxPages)
 
-        apiUsed = 'metrics'
-        console.log(`✅ Metrics API successful: ${allParticipants.length} participants found`)
+        successfulEndpoint = 'metrics'
+        recoveryStats.participants_found = allParticipants.length
+        console.log(`✅ Metrics strategy successful: ${allParticipants.length} participants found`)
         
       } catch (metricsError) {
-        console.error('❌ Both API endpoints failed:', { pastWebinarError, metricsError })
+        console.error('❌ Both strategies failed:', { pastWebinarError, metricsError })
         throw new Error(`Failed to fetch participants from both endpoints: ${pastWebinarError.message} | ${metricsError.message}`)
       }
     }
 
-    console.log(`🎯 Total participants found: ${allParticipants.length} using ${apiUsed} API`)
+    recoveryStats.success_endpoint = successfulEndpoint
+    console.log(`🎯 TOTAL PARTICIPANTS FOUND: ${allParticipants.length} using ${successfulEndpoint} API`)
 
-    // Enhanced participant processing with better deduplication
+    // PHASE 2: ENHANCED DEDUPLICATION WITH INTELLIGENT MERGING
     const participantMap = new Map<string, ZoomParticipant>()
     let duplicatesFound = 0
     
     for (const participant of allParticipants) {
-      const email = participant.user_email?.toLowerCase()?.trim() || `unknown_${participant.id || participant.user_id}`
+      const email = participant.user_email?.toLowerCase()?.trim() || `unknown_${participant.id || participant.user_id}_${Date.now()}`
       
       if (participantMap.has(email)) {
         duplicatesFound++
         const existing = participantMap.get(email)!
         
-        // Merge data - keep earliest join time and sum durations
-        if (new Date(participant.join_time) < new Date(existing.join_time)) {
-          existing.join_time = participant.join_time
-        }
-        if (new Date(participant.leave_time) > new Date(existing.leave_time)) {
-          existing.leave_time = participant.leave_time
-        }
-        existing.duration = (existing.duration || 0) + (participant.duration || 0)
+        // Intelligent merging - keep best data from both records
+        existing.join_time = new Date(participant.join_time) < new Date(existing.join_time) ? participant.join_time : existing.join_time
+        existing.leave_time = new Date(participant.leave_time) > new Date(existing.leave_time) ? participant.leave_time : existing.leave_time
+        existing.duration = Math.max(existing.duration || 0, participant.duration || 0)
+        existing.name = existing.name || participant.name
+        existing.attentiveness_score = existing.attentiveness_score || participant.attentiveness_score
       } else {
         participantMap.set(email, { ...participant })
       }
     }
 
     const deduplicatedParticipants = Array.from(participantMap.values())
-    console.log(`🔄 After deduplication: ${deduplicatedParticipants.length} unique participants (${duplicatesFound} duplicates merged)`)
+    recoveryStats.participants_after_dedup = deduplicatedParticipants.length
+    console.log(`🔄 After intelligent deduplication: ${deduplicatedParticipants.length} unique participants (${duplicatesFound} duplicates merged)`)
 
     // Calculate max duration for engagement scoring
     const maxDuration = Math.max(...deduplicatedParticipants.map(p => p.duration || 0))
     console.log(`📏 Max webinar duration: ${maxDuration} seconds`)
 
-    // Enhanced participant storage with improved validation and error handling
+    // PHASE 3: LENIENT FILTERING AND ROBUST STORAGE
     let processedCount = 0
-    let errorCount = 0
-    let validationErrors = 0
-    let botFilteredCount = 0
     const processingErrors: string[] = []
     
     for (const participant of deduplicatedParticipants) {
       try {
-        // Validate email
-        const cleanEmail = participant.user_email?.toLowerCase().trim() || ''
-        const isValidEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)
-        
-        // Improved bot detection
-        const isBot = isLikelyBot(participant)
-        
+        // Lenient filtering
+        const isBot = isLikelyBotLenient(participant)
         if (isBot) {
-          botFilteredCount++
-          console.log(`⏭️ Filtered out bot: ${participant.name} (${cleanEmail}) - duration: ${participant.duration}s`)
+          recoveryStats.bots_filtered++
           continue
         }
 
-        // Calculate engagement score with proper constraints
-        const engagementScore = calculateEngagementScore(participant, maxDuration)
+        const cleanEmail = participant.user_email?.toLowerCase().trim() || ''
+        const isValidEmail = isValidEmailLenient(cleanEmail)
+        if (!isValidEmail) {
+          recoveryStats.invalid_emails_filtered++
+          continue
+        }
+
+        // Safe engagement score calculation
+        const engagementScore = calculateEngagementScoreSafe(participant, maxDuration)
         
-        // Validate engagement score before insertion
-        if (engagementScore > 9.99 || engagementScore < 0) {
-          console.error(`❌ Invalid engagement score: ${engagementScore} for ${participant.name}`)
-          validationErrors++
+        // Sanitize and validate all data
+        const sanitizedData = sanitizeParticipantData(participant)
+        
+        const attendeeData = {
+          webinar_id,
+          organization_id,
+          ...sanitizedData,
+          engagement_score: engagementScore,
+          updated_at: new Date().toISOString(),
+        }
+        
+        // Validate all critical fields before insertion
+        if (!attendeeData.name || !attendeeData.email || !attendeeData.webinar_id) {
+          console.error(`❌ Missing critical fields for: ${JSON.stringify(attendeeData)}`)
+          recoveryStats.validation_errors++
           continue
         }
 
-        if (isValidEmail && cleanEmail !== '') {
-          // Enhanced data validation before insertion
-          const attendeeData = {
-            webinar_id,
-            organization_id,
-            zoom_user_id: participant.user_id || participant.id,
-            name: participant.name || 'Unknown Attendee',
-            email: cleanEmail,
-            join_time: participant.join_time,
-            leave_time: participant.leave_time,
-            duration_minutes: Math.round((participant.duration || 0) / 60),
-            engagement_score: engagementScore,
-            updated_at: new Date().toISOString(),
-          }
-          
-          // Validate all required fields
-          if (!attendeeData.name || !attendeeData.email || !attendeeData.webinar_id) {
-            console.error(`❌ Missing required fields for participant: ${JSON.stringify(attendeeData)}`)
-            validationErrors++
-            continue
-          }
+        // Robust database insertion with error handling
+        const { error: upsertError } = await supabaseClient
+          .from('attendees')
+          .upsert(attendeeData, {
+            onConflict: 'webinar_id,email',
+            ignoreDuplicates: false,
+          })
 
-          const { error: upsertError } = await supabaseClient
-            .from('attendees')
-            .upsert(attendeeData, {
-              onConflict: 'webinar_id,email',
-              ignoreDuplicates: false,
-            })
-
-          if (!upsertError) {
-            processedCount++
-            if (processedCount % 25 === 0) {
-              console.log(`💾 Successfully stored ${processedCount}/${deduplicatedParticipants.length} participants...`)
-            }
-          } else {
-            console.error('❌ Error upserting participant:', upsertError)
-            console.error('❌ Failed participant data:', JSON.stringify(attendeeData))
-            errorCount++
-            processingErrors.push(`${participant.name} (${cleanEmail}): ${upsertError.message}`)
+        if (!upsertError) {
+          processedCount++
+          if (processedCount % 50 === 0) {
+            console.log(`💾 Progress: ${processedCount}/${deduplicatedParticipants.length} participants stored...`)
           }
         } else {
-          console.log(`⏭️ Filtered out invalid email: ${participant.name} (${cleanEmail})`)
+          console.error('❌ Database error for participant:', upsertError)
+          console.error('❌ Failed data:', JSON.stringify(attendeeData))
+          recoveryStats.database_errors++
+          processingErrors.push(`${participant.name} (${cleanEmail}): ${upsertError.message}`)
         }
         
       } catch (error) {
-        console.error(`❌ Error processing participant ${participant.id}:`, error)
-        errorCount++
+        console.error(`❌ Processing error for participant ${participant.id}:`, error)
+        recoveryStats.database_errors++
         processingErrors.push(`${participant.name}: ${error.message}`)
       }
     }
 
-    console.log(`🎉 Participant sync completed with enhanced error handling!`)
-    console.log(`📊 Results summary:`)
-    console.log(`  - Total found: ${allParticipants.length}`)
-    console.log(`  - After deduplication: ${deduplicatedParticipants.length}`)
-    console.log(`  - Successfully stored: ${processedCount}`)
-    console.log(`  - Bot filtered: ${botFilteredCount}`)
-    console.log(`  - Validation errors: ${validationErrors}`)
-    console.log(`  - Database errors: ${errorCount}`)
+    recoveryStats.participants_stored = processedCount
+
+    console.log(`🎉 AGGRESSIVE RECOVERY COMPLETED!`)
+    console.log(`📊 Final Results:`)
+    console.log(`  - Total API calls: ${recoveryStats.total_api_calls}`)
+    console.log(`  - Pages processed: ${recoveryStats.total_pages_processed}`)
+    console.log(`  - Participants found: ${recoveryStats.participants_found}`)
+    console.log(`  - After deduplication: ${recoveryStats.participants_after_dedup}`)
+    console.log(`  - Successfully stored: ${recoveryStats.participants_stored}`)
+    console.log(`  - Bots filtered: ${recoveryStats.bots_filtered}`)
+    console.log(`  - Invalid emails: ${recoveryStats.invalid_emails_filtered}`)
+    console.log(`  - Validation errors: ${recoveryStats.validation_errors}`)
+    console.log(`  - Database errors: ${recoveryStats.database_errors}`)
+    console.log(`  - Success endpoint: ${recoveryStats.success_endpoint}`)
 
     // Update webinar attendee count
     if (webinar_id && processedCount > 0) {
@@ -483,9 +530,9 @@ serve(async (req) => {
     }
 
     // Update sync log with comprehensive results
-    const syncStatus = processedCount > 0 ? 'completed' : (errorCount > 0 ? 'failed' : 'completed')
-    const errorMessage = (errorCount > 0 || validationErrors > 0) ? 
-      `${errorCount} database errors, ${validationErrors} validation errors, ${botFilteredCount} bots filtered. Successfully stored: ${processedCount}.` : null
+    const syncStatus = processedCount > 0 ? 'completed' : 'failed'
+    const errorMessage = (recoveryStats.database_errors > 0 || recoveryStats.validation_errors > 0) ? 
+      `Aggressive recovery: ${recoveryStats.database_errors} DB errors, ${recoveryStats.validation_errors} validation errors, ${recoveryStats.bots_filtered} bots filtered. Found ${recoveryStats.participants_found}, stored ${processedCount}.` : null
     
     await supabaseClient
       .from('sync_logs')
@@ -501,17 +548,11 @@ serve(async (req) => {
       JSON.stringify({ 
         success: processedCount > 0,
         participants_synced: processedCount,
-        total_found: allParticipants.length,
-        after_deduplication: deduplicatedParticipants.length,
-        errors: errorCount,
-        validation_errors: validationErrors,
-        bots_filtered: botFilteredCount,
-        api_used: apiUsed,
-        error_summary: (errorCount > 0 || validationErrors > 0) ? 
-          `${errorCount} database errors, ${validationErrors} validation errors occurred` : null,
-        message: processedCount > 0 ? 
-          `Successfully stored ${processedCount} attendees (${botFilteredCount} bots filtered, ${validationErrors + errorCount} errors)` : 
-          `No attendees stored - check filtering criteria and error logs`
+        total_found: recoveryStats.participants_found,
+        after_deduplication: recoveryStats.participants_after_dedup,
+        recovery_stats: recoveryStats,
+        api_used: successfulEndpoint,
+        message: `AGGRESSIVE RECOVERY: Found ${recoveryStats.participants_found}, stored ${processedCount} attendees. Filtered: ${recoveryStats.bots_filtered} bots, ${recoveryStats.invalid_emails_filtered} invalid emails.`
       }),
       {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -519,7 +560,7 @@ serve(async (req) => {
     )
 
   } catch (error) {
-    console.error('💥 Participant sync error:', error)
+    console.error('💥 Aggressive recovery error:', error)
     
     // Try to update sync log with error
     try {
@@ -537,7 +578,7 @@ serve(async (req) => {
             organization_id: organization_id || 'unknown',
             user_id,
             webinar_id,
-            sync_type: 'participants',
+            sync_type: 'participants_aggressive',
             status: 'failed',
             error_message: error.message,
             completed_at: new Date().toISOString(),
@@ -551,7 +592,8 @@ serve(async (req) => {
       JSON.stringify({ 
         success: false,
         error: error.message,
-        participants_synced: 0
+        participants_synced: 0,
+        recovery_stats: null
       }),
       {
         status: 400,
