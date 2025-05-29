@@ -1,6 +1,4 @@
 
-import React, { useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
 import Header from "@/components/Header";
 import Sidebar from "@/components/Sidebar";
 import KPICards from "@/components/KPICards";
@@ -12,19 +10,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { BarChart3, Users, Settings } from "lucide-react";
 
 const Index = () => {
-  const [searchParams] = useSearchParams();
   const { webinars } = useWebinarData();
   const latestWebinar = webinars[0];
-  
-  // Get tab from URL parameters, default to "dashboard"
-  const tabFromUrl = searchParams.get('tab') || 'dashboard';
-  const [activeTab, setActiveTab] = useState(tabFromUrl);
-
-  // Update tab when URL changes
-  useEffect(() => {
-    const tabFromUrl = searchParams.get('tab') || 'dashboard';
-    setActiveTab(tabFromUrl);
-  }, [searchParams]);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -59,7 +46,7 @@ const Index = () => {
               )}
             </div>
             
-            <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+            <Tabs defaultValue="dashboard" className="space-y-6">
               <TabsList className="grid w-full grid-cols-3">
                 <TabsTrigger value="dashboard" className="flex items-center space-x-2">
                   <BarChart3 className="w-4 h-4" />
