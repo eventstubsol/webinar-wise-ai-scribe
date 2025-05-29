@@ -187,7 +187,7 @@ const ZoomIntegration = () => {
                         <div>
                           <p className="font-medium">{job.job_type}</p>
                           <p className="text-sm text-muted-foreground">
-                            {new Date(job.started_at || job.created_at || new Date()).toLocaleString()}
+                            {new Date(job.started_at || new Date()).toLocaleString()}
                           </p>
                           {job.metadata?.webinar_title && (
                             <p className="text-xs text-muted-foreground">
