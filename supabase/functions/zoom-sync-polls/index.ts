@@ -22,17 +22,23 @@ interface ZoomPoll {
 }
 
 interface ZoomPollResult {
-  poll_id: string
-  question_details: Array<{
-    question: string
+  id: string
+  uuid: string
+  start_time: string
+  title: string
+  questions: Array<{
+    name: string
+    type: string
+    answer_required: boolean
     answers: Array<{
       answer: string
       count: number
+      percentage?: string
     }>
   }>
 }
 
-// Token management functions (same as chat sync)
+// Token management functions
 async function decryptCredential(encryptedText: string, key: string): Promise<string> {
   try {
     const combined = Uint8Array.from(atob(encryptedText), c => c.charCodeAt(0))
@@ -133,7 +139,8 @@ serve(async (req) => {
       .select()
       .single()
 
-    // Fetch polls from Zoom API
+    // First, fetch polls from the correct endpoint
+    console.log(`Fetching polls for webinar ${zoom_webinar_id}...`)
     const pollsResponse = await fetch(`https://api.zoom.us/v2/webinars/${zoom_webinar_id}/polls`, {
       headers: {
         'Authorization': `Bearer ${accessToken}`,
@@ -143,15 +150,20 @@ serve(async (req) => {
 
     let allPolls: ZoomPoll[] = []
     let pollResults: ZoomPollResult[] = []
+    let pollFetchError = null
 
     if (pollsResponse.ok) {
       const pollsData = await pollsResponse.json()
       allPolls = pollsData.polls || []
+      console.log(`Found ${allPolls.length} polls for webinar ${zoom_webinar_id}`)
       
-      // Fetch poll results for each poll
-      for (const poll of allPolls) {
+      // Try to fetch poll results using the correct endpoint
+      if (allPolls.length > 0) {
+        console.log('Attempting to fetch poll results...')
+        
+        // Try the report endpoint for poll results
         try {
-          const resultsResponse = await fetch(`https://api.zoom.us/v2/metrics/webinars/${zoom_webinar_id}/polls/${poll.id}`, {
+          const resultsResponse = await fetch(`https://api.zoom.us/v2/report/webinars/${zoom_webinar_id}/polls`, {
             headers: {
               'Authorization': `Bearer ${accessToken}`,
             },
@@ -159,17 +171,37 @@ serve(async (req) => {
 
           if (resultsResponse.ok) {
             const resultData = await resultsResponse.json()
-            pollResults.push(resultData)
+            console.log('Poll results response:', JSON.stringify(resultData, null, 2))
+            
+            // The results might be in different format, let's handle it flexibly
+            if (resultData.polls) {
+              pollResults = resultData.polls
+            } else if (resultData.questions) {
+              // Transform the data if it's in a different format
+              pollResults = [{
+                id: zoom_webinar_id,
+                uuid: zoom_webinar_id,
+                start_time: '',
+                title: 'Poll Results',
+                questions: resultData.questions
+              }]
+            }
+            console.log(`Successfully fetched poll results: ${pollResults.length} result sets`)
+          } else {
+            const errorData = await resultsResponse.json()
+            console.log(`Poll results fetch failed with status ${resultsResponse.status}:`, errorData)
           }
-          
-          await new Promise(resolve => setTimeout(resolve, 100))
         } catch (error) {
-          console.error(`Error fetching results for poll ${poll.id}:`, error)
+          console.error('Error fetching poll results:', error.message)
         }
       }
+    } else {
+      const errorData = await pollsResponse.json()
+      pollFetchError = `API Error ${pollsResponse.status}: ${errorData.message || 'Unknown error'}`
+      console.error('Failed to fetch polls:', pollFetchError)
     }
 
-    console.log(`Found ${allPolls.length} polls with ${pollResults.length} result sets`)
+    console.log(`Processing ${allPolls.length} polls with ${pollResults.length} result sets`)
 
     // Store polls and results
     let processedCount = 0
@@ -177,35 +209,53 @@ serve(async (req) => {
     
     for (const poll of allPolls) {
       try {
-        // Find corresponding results
-        const results = pollResults.find(r => r.poll_id === poll.id)
+        console.log(`Processing poll: ${poll.id} - ${poll.title}`)
         
+        // Find corresponding results
+        const results = pollResults.find(r => r.id === poll.id) || pollResults[0] // Fallback to first result if available
+        
+        // Prepare the poll data for insertion
+        const pollData = {
+          webinar_id,
+          organization_id,
+          zoom_poll_id: poll.id,
+          title: poll.title || 'Untitled Poll',
+          poll_type: poll.poll_type || 'single',
+          question: poll.questions?.[0]?.name || poll.title || 'No question available',
+          options: poll.questions?.[0]?.answers || [],
+          results: results?.questions || [],
+          total_responses: 0,
+          created_at: new Date().toISOString(),
+        }
+
+        // Calculate total responses if results are available
+        if (results?.questions?.[0]?.answers) {
+          pollData.total_responses = results.questions[0].answers.reduce((sum: number, ans: any) => sum + (ans.count || 0), 0)
+        }
+
+        console.log(`Inserting poll data:`, {
+          zoom_poll_id: pollData.zoom_poll_id,
+          title: pollData.title,
+          total_responses: pollData.total_responses,
+          has_results: pollData.results.length > 0
+        })
+
         const { error: upsertError } = await supabaseClient
           .from('zoom_polls')
-          .upsert({
-            webinar_id,
-            organization_id,
-            zoom_poll_id: poll.id,
-            title: poll.title,
-            poll_type: poll.poll_type,
-            question: poll.questions?.[0]?.name || poll.title,
-            options: poll.questions?.[0]?.answers || [],
-            results: results?.question_details || [],
-            total_responses: results?.question_details?.[0]?.answers?.reduce((sum: number, ans: any) => sum + ans.count, 0) || 0,
-            created_at: new Date().toISOString(),
-          }, {
+          .upsert(pollData, {
             onConflict: 'webinar_id,zoom_poll_id',
           })
 
         if (!upsertError) {
           processedCount++
+          console.log(`✓ Successfully processed poll: ${poll.id}`)
         } else {
-          console.error('Error upserting poll:', upsertError)
+          console.error('Database upsert error for poll:', poll.id, upsertError)
           errorCount++
         }
         
       } catch (error) {
-        console.error(`Error processing poll ${poll.id}:`, error)
+        console.error(`Error processing poll ${poll.id}:`, error.message)
         errorCount++
       }
     }
@@ -214,7 +264,13 @@ serve(async (req) => {
 
     // Update sync log
     const syncStatus = errorCount > 0 && processedCount === 0 ? 'failed' : 'completed'
-    const errorMessage = errorCount > 0 ? `${errorCount} polls failed to process` : null
+    let errorMessage = null
+    
+    if (pollFetchError) {
+      errorMessage = pollFetchError
+    } else if (errorCount > 0) {
+      errorMessage = `${errorCount} polls failed to process`
+    }
     
     await supabaseClient
       .from('sync_logs')
@@ -228,10 +284,12 @@ serve(async (req) => {
 
     return new Response(
       JSON.stringify({ 
-        success: true, 
+        success: processedCount > 0 || allPolls.length === 0,
         polls_synced: processedCount,
         total_found: allPolls.length,
-        errors: errorCount
+        errors: errorCount,
+        has_results: pollResults.length > 0,
+        api_error: pollFetchError
       }),
       {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -242,7 +300,13 @@ serve(async (req) => {
     console.error('Polls sync error:', error)
     
     return new Response(
-      JSON.stringify({ error: error.message }),
+      JSON.stringify({ 
+        success: false,
+        error: error.message,
+        polls_synced: 0,
+        total_found: 0,
+        errors: 1
+      }),
       {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
