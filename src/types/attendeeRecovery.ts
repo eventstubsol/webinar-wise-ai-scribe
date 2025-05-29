@@ -10,6 +10,17 @@ export interface AttendeeRecoveryProgress {
   estimatedTimeRemaining?: string;
 }
 
+export interface RecoveryStats {
+  database_errors?: number;
+  validation_errors?: number;
+  bot_detections?: number;
+  email_rejections?: number;
+  duration_filters?: number;
+  api_calls_made?: number;
+  pages_processed?: number;
+  total_raw_found?: number;
+}
+
 export interface WebinarAttendeeResult {
   webinar_id: string;
   zoom_webinar_id: string;
@@ -20,4 +31,5 @@ export interface WebinarAttendeeResult {
   success: boolean;
   api_used?: string;
   error_message?: string;
+  recovery_stats?: RecoveryStats;
 }
