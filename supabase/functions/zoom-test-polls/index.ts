@@ -97,15 +97,52 @@ serve(async (req) => {
 
     const testResults = {
       webinar_id: zoom_webinar_id,
-      polls_endpoint: null,
-      results_endpoint: null,
+      past_webinars_endpoint: null,
+      webinars_endpoint: null,
       api_errors: [],
       polls_found: 0,
       results_found: 0
     }
 
-    // Test 1: Fetch polls
-    console.log('Testing polls endpoint...')
+    // Test 1: Fetch polls from correct past webinars endpoint
+    console.log('Testing past webinars polls endpoint...')
+    try {
+      const pollsResponse = await fetch(`https://api.zoom.us/v2/past_webinars/${zoom_webinar_id}/polls`, {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+      })
+
+      if (pollsResponse.ok) {
+        const pollsData = await pollsResponse.json()
+        testResults.past_webinars_endpoint = {
+          status: 'success',
+          data: pollsData,
+          polls_count: pollsData.polls?.length || 0,
+          has_embedded_results: pollsData.polls?.some(p => p.questions?.some(q => q.answers?.some(a => a.count))) || false
+        }
+        testResults.polls_found = pollsData.polls?.length || 0
+        testResults.results_found = pollsData.polls?.filter(p => p.questions?.some(q => q.answers?.some(a => a.count))).length || 0
+      } else {
+        const errorData = await pollsResponse.json()
+        testResults.past_webinars_endpoint = {
+          status: 'error',
+          error: errorData,
+          status_code: pollsResponse.status
+        }
+        testResults.api_errors.push(`Past Webinars Polls API: ${pollsResponse.status} - ${errorData.message}`)
+      }
+    } catch (error) {
+      testResults.past_webinars_endpoint = {
+        status: 'exception',
+        error: error.message
+      }
+      testResults.api_errors.push(`Past Webinars Polls API Exception: ${error.message}`)
+    }
+
+    // Test 2: Also test the old endpoint for comparison
+    console.log('Testing webinars polls endpoint for comparison...')
     try {
       const pollsResponse = await fetch(`https://api.zoom.us/v2/webinars/${zoom_webinar_id}/polls`, {
         headers: {
@@ -116,61 +153,26 @@ serve(async (req) => {
 
       if (pollsResponse.ok) {
         const pollsData = await pollsResponse.json()
-        testResults.polls_endpoint = {
+        testResults.webinars_endpoint = {
           status: 'success',
           data: pollsData,
           polls_count: pollsData.polls?.length || 0
         }
-        testResults.polls_found = pollsData.polls?.length || 0
       } else {
         const errorData = await pollsResponse.json()
-        testResults.polls_endpoint = {
+        testResults.webinars_endpoint = {
           status: 'error',
           error: errorData,
           status_code: pollsResponse.status
         }
-        testResults.api_errors.push(`Polls API: ${pollsResponse.status} - ${errorData.message}`)
+        testResults.api_errors.push(`Webinars Polls API: ${pollsResponse.status} - ${errorData.message}`)
       }
     } catch (error) {
-      testResults.polls_endpoint = {
+      testResults.webinars_endpoint = {
         status: 'exception',
         error: error.message
       }
-      testResults.api_errors.push(`Polls API Exception: ${error.message}`)
-    }
-
-    // Test 2: Fetch poll results
-    console.log('Testing poll results endpoint...')
-    try {
-      const resultsResponse = await fetch(`https://api.zoom.us/v2/report/webinars/${zoom_webinar_id}/polls`, {
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-        },
-      })
-
-      if (resultsResponse.ok) {
-        const resultData = await resultsResponse.json()
-        testResults.results_endpoint = {
-          status: 'success',
-          data: resultData,
-          results_count: resultData.polls?.length || resultData.questions?.length || 0
-        }
-        testResults.results_found = resultData.polls?.length || resultData.questions?.length || 0
-      } else {
-        const errorData = await resultsResponse.json()
-        testResults.results_endpoint = {
-          status: 'error',
-          error: errorData,
-          status_code: resultsResponse.status
-        }
-        testResults.api_errors.push(`Results API: ${resultsResponse.status} - ${errorData.message}`)
-      }
-    } catch (error) {
-      testResults.results_endpoint = {
-        status: 'exception',
-        error: error.message
-      }
-      testResults.api_errors.push(`Results API Exception: ${error.message}`)
+      testResults.api_errors.push(`Webinars Polls API Exception: ${error.message}`)
     }
 
     // Test 3: Check database for existing polls
@@ -188,7 +190,10 @@ serve(async (req) => {
     return new Response(
       JSON.stringify({
         success: true,
-        ...testResults
+        ...testResults,
+        recommendation: testResults.past_webinars_endpoint?.status === 'success' 
+          ? 'Use past_webinars endpoint - it includes embedded results' 
+          : 'Past webinars endpoint failed, check webinar ID and permissions'
       }),
       {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
