@@ -6,12 +6,14 @@ import Sidebar from '@/components/Sidebar';
 import UserProfileCard from '@/components/UserProfileCard';
 import ZoomConnectionCard from '@/components/ZoomConnectionCard';
 import { useZoomConnection } from '@/hooks/useZoomConnection';
+import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Bug } from 'lucide-react';
 
 const AccountDashboard = () => {
   const navigate = useNavigate();
   const { zoomConnection, isConnected } = useZoomConnection();
+  const { user } = useAuth();
 
   const navigateToDebugPolls = () => {
     navigate('/?tab=integration&subtab=debug');
@@ -39,7 +41,7 @@ const AccountDashboard = () => {
             </div>
             
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <UserProfileCard />
+              <UserProfileCard user={user} />
               <ZoomConnectionCard 
                 zoomConnection={zoomConnection}
                 isConnected={isConnected}
