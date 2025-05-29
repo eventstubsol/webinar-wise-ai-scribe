@@ -416,6 +416,57 @@ export type Database = {
           },
         ]
       }
+      registration_sync_jobs: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          error_count: number | null
+          id: string
+          last_error: string | null
+          metadata: Json | null
+          organization_id: string
+          started_at: string | null
+          status: string
+          total_expected: number | null
+          total_fetched: number | null
+          total_stored: number | null
+          webinar_id: string
+          zoom_webinar_id: string
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          error_count?: number | null
+          id?: string
+          last_error?: string | null
+          metadata?: Json | null
+          organization_id: string
+          started_at?: string | null
+          status?: string
+          total_expected?: number | null
+          total_fetched?: number | null
+          total_stored?: number | null
+          webinar_id: string
+          zoom_webinar_id: string
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          error_count?: number | null
+          id?: string
+          last_error?: string | null
+          metadata?: Json | null
+          organization_id?: string
+          started_at?: string | null
+          status?: string
+          total_expected?: number | null
+          total_fetched?: number | null
+          total_stored?: number | null
+          webinar_id?: string
+          zoom_webinar_id?: string
+        }
+        Relationships: []
+      }
       sync_jobs: {
         Row: {
           completed_at: string | null
@@ -2233,9 +2284,12 @@ export type Database = {
           id: string
           join_url: string | null
           last_name: string | null
+          last_synced_at: string | null
           organization_id: string
           registration_time: string | null
+          source_api_status: string | null
           status: string
+          sync_batch_id: string | null
           updated_at: string
           webinar_id: string
           zoom_registrant_id: string | null
@@ -2248,9 +2302,12 @@ export type Database = {
           id?: string
           join_url?: string | null
           last_name?: string | null
+          last_synced_at?: string | null
           organization_id: string
           registration_time?: string | null
+          source_api_status?: string | null
           status?: string
+          sync_batch_id?: string | null
           updated_at?: string
           webinar_id: string
           zoom_registrant_id?: string | null
@@ -2263,9 +2320,12 @@ export type Database = {
           id?: string
           join_url?: string | null
           last_name?: string | null
+          last_synced_at?: string | null
           organization_id?: string
           registration_time?: string | null
+          source_api_status?: string | null
           status?: string
+          sync_batch_id?: string | null
           updated_at?: string
           webinar_id?: string
           zoom_registrant_id?: string | null

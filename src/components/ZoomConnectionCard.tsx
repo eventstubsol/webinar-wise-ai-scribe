@@ -6,6 +6,7 @@ import { Link2, CheckCircle, XCircle, AlertTriangle, RefreshCw, Settings } from 
 import { useZoomIntegration } from "@/hooks/useZoomIntegration";
 import ZoomConnectionWizard from "./ZoomConnectionWizard";
 import SyncProgressIndicator from "./SyncProgressIndicator";
+import RegistrationSyncStatus from "./RegistrationSyncStatus";
 import { useState } from "react";
 import { useJobProcessor } from "@/hooks/useJobProcessor";
 
@@ -131,11 +132,14 @@ const ZoomConnectionCard = ({ zoomConnection, isConnected }: ZoomConnectionCardP
           <div className="pt-2 border-t">
             <div className="flex items-center space-x-2 text-xs text-gray-500">
               <AlertTriangle className="w-3 h-3" />
-              <span>Enhanced sync with data quality fixes and automated job processing</span>
+              <span>Enhanced sync with comprehensive registration fetching and error handling</span>
             </div>
           </div>
         </CardContent>
       </Card>
+
+      {/* Registration Sync Status */}
+      {isConnected && <RegistrationSyncStatus />}
 
       <ZoomConnectionWizard
         isOpen={isWizardOpen}

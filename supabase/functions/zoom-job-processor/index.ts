@@ -92,9 +92,9 @@ async function processDetailedSyncJob(job: SyncJob, supabaseClient: any) {
     await supabaseClient.from('sync_jobs').update({ progress: 40 }).eq('id', job.id)
     await new Promise(resolve => setTimeout(resolve, 1000))
 
-    // Process registrations
+    // Process registrations with enhanced sync
     try {
-      console.log('Processing registrations...')
+      console.log('Processing enhanced registrations...')
       const registrationsResult = await supabaseClient.functions.invoke('zoom-sync-registrations', {
         body: {
           organization_id,
@@ -107,14 +107,19 @@ async function processDetailedSyncJob(job: SyncJob, supabaseClient: any) {
       if (registrationsResult.data?.success) {
         results.registrations.success = true
         results.registrations.count = registrationsResult.data.registrations_synced || 0
-        console.log(`✓ Registrations synced: ${results.registrations.count}`)
+        console.log(`✓ Enhanced registrations synced: ${results.registrations.count}`)
+        
+        // Log enhanced sync details if available
+        if (registrationsResult.data.enhanced_sync) {
+          console.log(`📊 Registration breakdown:`, registrationsResult.data.status_breakdown)
+        }
       } else {
         results.registrations.error = registrationsResult.error?.message || 'Unknown error'
-        console.log(`❌ Registrations sync failed: ${results.registrations.error}`)
+        console.log(`❌ Enhanced registrations sync failed: ${results.registrations.error}`)
       }
     } catch (error) {
       results.registrations.error = error.message
-      console.log(`❌ Registrations sync error: ${error.message}`)
+      console.log(`❌ Enhanced registrations sync error: ${error.message}`)
     }
 
     await supabaseClient.from('sync_jobs').update({ progress: 60 }).eq('id', job.id)
@@ -219,7 +224,8 @@ async function processDetailedSyncJob(job: SyncJob, supabaseClient: any) {
         metadata: {
           ...job.metadata,
           results,
-          completed_at: new Date().toISOString()
+          completed_at: new Date().toISOString(),
+          enhanced_registration_sync: results.registrations.success
         }
       })
       .eq('id', job.id)
@@ -244,8 +250,49 @@ async function processDetailedSyncJob(job: SyncJob, supabaseClient: any) {
   }
 }
 
+async function cleanupStuckJobs(supabaseClient: any) {
+  console.log('🧹 Cleaning up stuck registration sync jobs...')
+  
+  try {
+    // Mark registration sync jobs older than 1 hour as failed
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString()
+    
+    const { data: stuckJobs, error: fetchError } = await supabaseClient
+      .from('registration_sync_jobs')
+      .select('id, zoom_webinar_id')
+      .eq('status', 'running')
+      .lt('started_at', oneHourAgo)
+
+    if (fetchError) {
+      console.error('Error fetching stuck jobs:', fetchError)
+      return
+    }
+
+    if (stuckJobs && stuckJobs.length > 0) {
+      console.log(`Found ${stuckJobs.length} stuck registration sync jobs`)
+      
+      const { error: updateError } = await supabaseClient
+        .from('registration_sync_jobs')
+        .update({
+          status: 'failed',
+          last_error: 'Job timed out after 1 hour',
+          completed_at: new Date().toISOString()
+        })
+        .in('id', stuckJobs.map(job => job.id))
+
+      if (updateError) {
+        console.error('Error updating stuck jobs:', updateError)
+      } else {
+        console.log(`✅ Cleaned up ${stuckJobs.length} stuck registration sync jobs`)
+      }
+    }
+  } catch (error) {
+    console.error('Error during cleanup:', error)
+  }
+}
+
 serve(async (req) => {
-  console.log('Job processor called with method:', req.method)
+  console.log('Enhanced job processor called with method:', req.method)
   
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -258,6 +305,9 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     )
+
+    // Clean up stuck jobs first
+    await cleanupStuckJobs(supabaseClient)
 
     // Get pending detailed sync jobs
     const { data: pendingJobs, error: jobsError } = await supabaseClient
@@ -280,7 +330,8 @@ serve(async (req) => {
           success: true,
           message: 'No pending jobs to process',
           jobs_processed: 0,
-          processing_time_ms: Date.now() - startTime
+          processing_time_ms: Date.now() - startTime,
+          cleanup_performed: true
         }),
         {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -290,12 +341,13 @@ serve(async (req) => {
 
     const results = []
     
-    // Process each job
+    // Process each job with enhanced registration sync
     for (const job of pendingJobs) {
       const result = await processDetailedSyncJob(job, supabaseClient)
       results.push({
         job_id: job.id,
         webinar_zoom_id: job.metadata?.webinar_zoom_id,
+        enhanced_registration_sync: true,
         ...result
       })
       
@@ -306,7 +358,7 @@ serve(async (req) => {
     const processingTime = Date.now() - startTime
     const successCount = results.filter(r => r.success).length
     
-    console.log(`Job processing completed: ${successCount}/${results.length} jobs successful`)
+    console.log(`Enhanced job processing completed: ${successCount}/${results.length} jobs successful`)
 
     return new Response(
       JSON.stringify({
@@ -315,7 +367,8 @@ serve(async (req) => {
         successful_jobs: successCount,
         failed_jobs: results.length - successCount,
         results,
-        processing_time_ms: processingTime
+        processing_time_ms: processingTime,
+        enhanced_features: ['comprehensive_registration_sync', 'stuck_job_cleanup', 'improved_error_handling']
       }),
       {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -323,13 +376,14 @@ serve(async (req) => {
     )
 
   } catch (error) {
-    console.error('Job processor error:', error)
+    console.error('Enhanced job processor error:', error)
     
     return new Response(
       JSON.stringify({
         success: false,
         error: error.message,
-        processing_time_ms: Date.now() - startTime
+        processing_time_ms: Date.now() - startTime,
+        enhanced_features: ['error_recovery', 'detailed_logging']
       }),
       {
         status: 500,
