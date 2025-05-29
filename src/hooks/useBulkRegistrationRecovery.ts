@@ -1,30 +1,14 @@
 
 import { useState } from 'react';
-import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from '@/hooks/use-toast';
-
-interface RecoveryProgress {
-  totalWebinars: number;
-  processedWebinars: number;
-  currentWebinar: string;
-  totalRegistrations: number;
-  errors: number;
-  isRunning: boolean;
-  startTime?: Date;
-  estimatedTimeRemaining?: string;
-}
-
-interface WebinarRecoveryResult {
-  webinar_id: string;
-  zoom_webinar_id: string;
-  title: string;
-  registrations_found: number;
-  registrations_stored: number;
-  errors: number;
-  success: boolean;
-  error_message?: string;
-}
+import { RecoveryProgress, WebinarRecoveryResult } from '@/types/registrationRecovery';
+import { calculateEstimatedTime, addLogEntry } from '@/utils/registrationRecoveryUtils';
+import { 
+  clearStuckRegistrationJobs, 
+  getWebinarsForRegistrationRecovery, 
+  recoverWebinarRegistrations 
+} from '@/services/registrationRecoveryService';
 
 export const useBulkRegistrationRecovery = () => {
   const { user } = useAuth();
@@ -40,146 +24,7 @@ export const useBulkRegistrationRecovery = () => {
   const [recoveryLogs, setRecoveryLogs] = useState<string[]>([]);
 
   const addLog = (message: string) => {
-    const timestamp = new Date().toLocaleTimeString();
-    const logEntry = `[${timestamp}] ${message}`;
-    setRecoveryLogs(prev => [...prev, logEntry]);
-    console.log(logEntry);
-  };
-
-  const calculateEstimatedTime = (processed: number, total: number, startTime: Date) => {
-    if (processed === 0) return 'Calculating...';
-    
-    const elapsed = Date.now() - startTime.getTime();
-    const avgTimePerWebinar = elapsed / processed;
-    const remaining = (total - processed) * avgTimePerWebinar;
-    
-    const minutes = Math.ceil(remaining / 60000);
-    return `~${minutes} minutes`;
-  };
-
-  const clearStuckJobs = async () => {
-    try {
-      addLog('Clearing stuck registration sync jobs...');
-      
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('organization_id')
-        .eq('id', user!.id)
-        .single();
-
-      if (!profile?.organization_id) {
-        throw new Error('Organization not found');
-      }
-
-      // Clear stuck registration sync jobs
-      const { error: clearError } = await supabase
-        .from('registration_sync_jobs')
-        .delete()
-        .eq('organization_id', profile.organization_id)
-        .in('status', ['running', 'pending'])
-        .lt('created_at', new Date(Date.now() - 30 * 60 * 1000).toISOString()); // 30 minutes old
-
-      if (clearError) {
-        addLog(`Warning: Failed to clear stuck jobs: ${clearError.message}`);
-      } else {
-        addLog('Stuck jobs cleared successfully');
-      }
-    } catch (error: any) {
-      addLog(`Error clearing stuck jobs: ${error.message}`);
-    }
-  };
-
-  const getWebinarsToRecover = async () => {
-    try {
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('organization_id')
-        .eq('id', user!.id)
-        .single();
-
-      if (!profile?.organization_id) {
-        throw new Error('Organization not found');
-      }
-
-      // Get all webinars for this organization
-      const { data: webinars, error } = await supabase
-        .from('webinars')
-        .select('id, zoom_webinar_id, title, registrants_count')
-        .eq('organization_id', profile.organization_id)
-        .not('zoom_webinar_id', 'is', null)
-        .order('start_time', { ascending: false });
-
-      if (error) throw error;
-
-      addLog(`Found ${webinars?.length || 0} webinars to process`);
-      
-      // Prioritize webinars with 0 registrants_count first
-      const prioritized = webinars?.sort((a, b) => {
-        if (a.registrants_count === 0 && b.registrants_count > 0) return -1;
-        if (a.registrants_count > 0 && b.registrants_count === 0) return 1;
-        return 0;
-      }) || [];
-
-      return { webinars: prioritized, organization_id: profile.organization_id };
-    } catch (error: any) {
-      addLog(`Error fetching webinars: ${error.message}`);
-      throw error;
-    }
-  };
-
-  const recoverWebinarRegistrations = async (webinar: any, organizationId: string): Promise<WebinarRecoveryResult> => {
-    try {
-      addLog(`Starting recovery for webinar: ${webinar.title} (${webinar.zoom_webinar_id})`);
-
-      const { data, error } = await supabase.functions.invoke('zoom-sync-registrations', {
-        body: {
-          organization_id: organizationId,
-          user_id: user!.id,
-          webinar_id: webinar.id,
-          zoom_webinar_id: webinar.zoom_webinar_id
-        }
-      });
-
-      if (error) {
-        addLog(`❌ Failed to recover ${webinar.title}: ${error.message}`);
-        return {
-          webinar_id: webinar.id,
-          zoom_webinar_id: webinar.zoom_webinar_id,
-          title: webinar.title,
-          registrations_found: 0,
-          registrations_stored: 0,
-          errors: 1,
-          success: false,
-          error_message: error.message
-        };
-      }
-
-      const result = data as any;
-      addLog(`✅ Successfully recovered ${result.registrations_synced || 0} registrations for ${webinar.title}`);
-
-      return {
-        webinar_id: webinar.id,
-        zoom_webinar_id: webinar.zoom_webinar_id,
-        title: webinar.title,
-        registrations_found: result.total_found || 0,
-        registrations_stored: result.registrations_synced || 0,
-        errors: result.errors || 0,
-        success: result.success || false,
-        error_message: result.error
-      };
-    } catch (error: any) {
-      addLog(`❌ Exception during recovery for ${webinar.title}: ${error.message}`);
-      return {
-        webinar_id: webinar.id,
-        zoom_webinar_id: webinar.zoom_webinar_id,
-        title: webinar.title,
-        registrations_found: 0,
-        registrations_stored: 0,
-        errors: 1,
-        success: false,
-        error_message: error.message
-      };
-    }
+    addLogEntry(message, setRecoveryLogs);
   };
 
   const startBulkRecovery = async () => {
@@ -201,10 +46,16 @@ export const useBulkRegistrationRecovery = () => {
       addLog('🚀 Starting bulk registration recovery process...');
 
       // Step 1: Clear stuck jobs
-      await clearStuckJobs();
+      try {
+        addLog('Clearing stuck registration sync jobs...');
+        await clearStuckRegistrationJobs(user.id);
+        addLog('Stuck jobs cleared successfully');
+      } catch (error: any) {
+        addLog(`Warning: Failed to clear stuck jobs: ${error.message}`);
+      }
 
       // Step 2: Get webinars to recover
-      const { webinars, organization_id } = await getWebinarsToRecover();
+      const { webinars, organization_id } = await getWebinarsForRegistrationRecovery(user.id);
       
       setRecoveryProgress(prev => ({ 
         ...prev, 
@@ -228,7 +79,7 @@ export const useBulkRegistrationRecovery = () => {
 
         // Process batch in parallel
         const batchPromises = batch.map(webinar => 
-          recoverWebinarRegistrations(webinar, organization_id)
+          recoverWebinarRegistrations(webinar, organization_id, user.id)
         );
 
         const batchResults = await Promise.all(batchPromises);
@@ -252,6 +103,15 @@ export const useBulkRegistrationRecovery = () => {
         }));
 
         setRecoveryResults([...results]);
+
+        // Log results for each webinar
+        batchResults.forEach(result => {
+          if (result.registrations_stored > 0) {
+            addLog(`✅ Successfully recovered ${result.registrations_stored} registrations for ${result.title}`);
+          } else {
+            addLog(`❌ Failed to recover ${result.title}: ${result.error_message || 'Unknown error'}`);
+          }
+        });
 
         addLog(`📊 Batch complete: ${batchRegistrations} registrations recovered, ${batchErrors} errors`);
 
