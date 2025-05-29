@@ -1,3 +1,4 @@
+
 import { useAuth } from "@/hooks/useAuth";
 import { useZoomIntegration } from "@/hooks/useZoomIntegration";
 import Header from "@/components/Header";
@@ -6,6 +7,7 @@ import UserProfileCard from "@/components/UserProfileCard";
 import ZoomConnectionCard from "@/components/ZoomConnectionCard";
 import RecentActivityCard from "@/components/RecentActivityCard";
 import RealtimeDashboard from "@/components/RealtimeDashboard";
+import WebhookTestingPanel from "@/components/WebhookTestingPanel";
 
 const AccountDashboard = () => {
   const { user } = useAuth();
@@ -63,6 +65,11 @@ const AccountDashboard = () => {
                 </p>
               </div>
               <RealtimeDashboard />
+            </div>
+
+            {/* Webhook Testing Panel */}
+            <div className="mb-6">
+              <WebhookTestingPanel />
             </div>
 
             <div className="grid grid-cols-1 gap-6">
