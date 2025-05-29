@@ -60,7 +60,7 @@ export const useBulkAttendeeRecovery = () => {
 
   const clearStuckJobs = async () => {
     try {
-      addLog('Clearing stuck attendee sync jobs...');
+      addLog('Clearing any stuck sync jobs...');
       
       const { data: profile } = await supabase
         .from('profiles')
@@ -72,19 +72,20 @@ export const useBulkAttendeeRecovery = () => {
         throw new Error('Organization not found');
       }
 
-      // Clear old sync logs
+      // Clear old sync logs that are stuck
+      const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
       const { error: clearError } = await supabase
         .from('sync_logs')
         .delete()
         .eq('organization_id', profile.organization_id)
         .eq('sync_type', 'participants')
-        .in('status', ['started'])
-        .lt('started_at', new Date(Date.now() - 30 * 60 * 1000).toISOString());
+        .eq('status', 'started')
+        .lt('started_at', thirtyMinutesAgo);
 
       if (clearError) {
         addLog(`Warning: Failed to clear stuck jobs: ${clearError.message}`);
       } else {
-        addLog('Stuck participant sync jobs cleared successfully');
+        addLog('Successfully cleared any stuck sync jobs');
       }
     } catch (error: any) {
       addLog(`Error clearing stuck jobs: ${error.message}`);
@@ -103,7 +104,7 @@ export const useBulkAttendeeRecovery = () => {
         throw new Error('Organization not found');
       }
 
-      // Get all webinars for this organization, prioritizing those with 0 attendees
+      // Get webinars, prioritizing those with 0 attendees
       const { data: webinars, error } = await supabase
         .from('webinars')
         .select('id, zoom_webinar_id, title, attendees_count, start_time')
@@ -113,17 +114,17 @@ export const useBulkAttendeeRecovery = () => {
 
       if (error) throw error;
 
-      addLog(`Found ${webinars?.length || 0} webinars to process`);
-      
-      // Prioritize webinars with 0 attendees count first
+      // Sort to prioritize webinars with 0 attendees
       const prioritized = webinars?.sort((a, b) => {
-        if ((a.attendees_count || 0) === 0 && (b.attendees_count || 0) > 0) return -1;
-        if ((a.attendees_count || 0) > 0 && (b.attendees_count || 0) === 0) return 1;
+        const aCount = a.attendees_count || 0;
+        const bCount = b.attendees_count || 0;
+        if (aCount === 0 && bCount > 0) return -1;
+        if (aCount > 0 && bCount === 0) return 1;
         return 0;
       }) || [];
 
       const zeroAttendeeCount = prioritized.filter(w => (w.attendees_count || 0) === 0).length;
-      addLog(`Priority processing: ${zeroAttendeeCount} webinars with 0 attendees`);
+      addLog(`Found ${prioritized.length} webinars to process (${zeroAttendeeCount} with 0 attendees will be prioritized)`);
 
       return { webinars: prioritized, organization_id: profile.organization_id };
     } catch (error: any) {
@@ -134,7 +135,7 @@ export const useBulkAttendeeRecovery = () => {
 
   const recoverWebinarAttendees = async (webinar: any, organizationId: string): Promise<WebinarAttendeeResult> => {
     try {
-      addLog(`Starting attendee recovery for: ${webinar.title} (${webinar.zoom_webinar_id})`);
+      addLog(`🔄 Processing: ${webinar.title} (${webinar.zoom_webinar_id})`);
 
       const { data, error } = await supabase.functions.invoke('zoom-sync-participants', {
         body: {
@@ -146,7 +147,7 @@ export const useBulkAttendeeRecovery = () => {
       });
 
       if (error) {
-        addLog(`❌ Failed to recover attendees for ${webinar.title}: ${error.message}`);
+        addLog(`❌ Failed: ${webinar.title} - ${error.message}`);
         return {
           webinar_id: webinar.id,
           zoom_webinar_id: webinar.zoom_webinar_id,
@@ -163,7 +164,11 @@ export const useBulkAttendeeRecovery = () => {
       const attendeesSynced = result.participants_synced || 0;
       const attendeesFound = result.total_found || 0;
       
-      addLog(`✅ Successfully recovered ${attendeesSynced} attendees for ${webinar.title} (Found: ${attendeesFound}, API: ${result.api_used})`);
+      if (attendeesSynced > 0) {
+        addLog(`✅ Success: ${webinar.title} - Stored ${attendeesSynced} attendees`);
+      } else {
+        addLog(`⚠️ No data: ${webinar.title} - Found ${attendeesFound} but stored ${attendeesSynced}`);
+      }
 
       return {
         webinar_id: webinar.id,
@@ -174,10 +179,10 @@ export const useBulkAttendeeRecovery = () => {
         errors: result.errors || 0,
         success: result.success || false,
         api_used: result.api_used,
-        error_message: result.error
+        error_message: result.error_summary
       };
     } catch (error: any) {
-      addLog(`❌ Exception during attendee recovery for ${webinar.title}: ${error.message}`);
+      addLog(`❌ Exception: ${webinar.title} - ${error.message}`);
       return {
         webinar_id: webinar.id,
         zoom_webinar_id: webinar.zoom_webinar_id,
@@ -207,9 +212,9 @@ export const useBulkAttendeeRecovery = () => {
       setRecoveryResults([]);
       setRecoveryLogs([]);
 
-      addLog('🚀 Starting bulk attendee recovery process...');
+      addLog('🚀 Starting bulk attendee recovery with fixed database constraints...');
 
-      // Step 1: Clear stuck jobs
+      // Step 1: Clear any stuck jobs
       await clearStuckJobs();
 
       // Step 2: Get webinars to process
@@ -223,17 +228,18 @@ export const useBulkAttendeeRecovery = () => {
         errors: 0
       }));
 
-      addLog(`📋 Processing ${webinars.length} webinars in batches of 2 (attendee recovery is slower)...`);
-
-      // Step 3: Process webinars in smaller batches for attendee recovery
-      const batchSize = 2; // Smaller batches for attendee processing
+      // Step 3: Process webinars in small batches
+      const batchSize = 3; // Small batches for better monitoring
       const results: WebinarAttendeeResult[] = [];
       let totalAttendees = 0;
       let totalErrors = 0;
 
       for (let i = 0; i < webinars.length; i += batchSize) {
         const batch = webinars.slice(i, i + batchSize);
-        addLog(`\n🔄 Processing batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(webinars.length / batchSize)}...`);
+        const batchNum = Math.floor(i / batchSize) + 1;
+        const totalBatches = Math.ceil(webinars.length / batchSize);
+        
+        addLog(`\n📦 Processing batch ${batchNum}/${totalBatches} (${batch.length} webinars)...`);
 
         // Process batch in parallel
         const batchPromises = batch.map(webinar => 
@@ -262,38 +268,42 @@ export const useBulkAttendeeRecovery = () => {
 
         setRecoveryResults([...results]);
 
-        addLog(`📊 Batch complete: ${batchAttendees} attendees recovered, ${batchErrors} errors`);
+        addLog(`📊 Batch ${batchNum} complete: +${batchAttendees} attendees, ${batchErrors} errors`);
 
-        // Longer delay between batches for attendee processing
+        // Short delay between batches
         if (i + batchSize < webinars.length) {
-          addLog('⏱️ Waiting 3 seconds before next batch...');
-          await new Promise(resolve => setTimeout(resolve, 3000));
+          addLog('⏳ Waiting 2 seconds before next batch...');
+          await new Promise(resolve => setTimeout(resolve, 2000));
         }
       }
 
-      // Step 4: Final summary
-      const successfulWebinars = results.filter(r => r.success).length;
-      const failedWebinars = results.filter(r => !r.success).length;
-      const totalAttendeesFound = results.reduce((sum, r) => sum + r.attendees_found, 0);
+      // Final summary
+      const successfulWebinars = results.filter(r => r.success && r.attendees_stored > 0).length;
+      const failedWebinars = results.filter(r => !r.success || r.attendees_stored === 0).length;
+      const totalFound = results.reduce((sum, r) => sum + r.attendees_found, 0);
 
       addLog(`\n🎉 Bulk attendee recovery completed!`);
-      addLog(`📈 Summary:`);
-      addLog(`  - Webinars processed: ${webinars.length}`);
-      addLog(`  - Successful recoveries: ${successfulWebinars}`);
-      addLog(`  - Failed recoveries: ${failedWebinars}`);
-      addLog(`  - Total attendees found: ${totalAttendeesFound}`);
-      addLog(`  - Total attendees stored: ${totalAttendees}`);
-      addLog(`  - Total errors: ${totalErrors}`);
+      addLog(`📈 Final Results:`);
+      addLog(`  • Webinars processed: ${webinars.length}`);
+      addLog(`  • Successful recoveries: ${successfulWebinars}`);
+      addLog(`  • Failed/empty recoveries: ${failedWebinars}`);
+      addLog(`  • Total attendees found: ${totalFound}`);
+      addLog(`  • Total attendees stored: ${totalAttendees}`);
+
+      const message = totalAttendees > 0 
+        ? `Successfully recovered ${totalAttendees} attendees from ${successfulWebinars} webinars!`
+        : `Recovery completed but no attendees were stored. Check individual webinar results for details.`;
 
       toast({
-        title: "Attendee Recovery Complete!",
-        description: `Recovered ${totalAttendees} attendees from ${successfulWebinars}/${webinars.length} webinars.`,
+        title: totalAttendees > 0 ? "Recovery Successful!" : "Recovery Completed",
+        description: message,
+        variant: totalAttendees > 0 ? "default" : "destructive",
       });
 
     } catch (error: any) {
       addLog(`❌ Bulk attendee recovery failed: ${error.message}`);
       toast({
-        title: "Attendee Recovery Failed",
+        title: "Recovery Failed",
         description: error.message,
         variant: "destructive",
       });

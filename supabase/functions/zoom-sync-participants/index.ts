@@ -1,3 +1,4 @@
+
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
@@ -224,7 +225,7 @@ serve(async (req) => {
         // Add delay to respect rate limits
         await new Promise(resolve => setTimeout(resolve, 300))
         
-      } while (nextPageToken && pageCount < 50) // Increased safety limit
+      } while (nextPageToken && pageCount < 50)
 
       apiUsed = 'past_webinars'
       console.log(`✅ Past webinars API successful: ${allParticipants.length} participants found`)
@@ -301,7 +302,7 @@ serve(async (req) => {
     const deduplicatedParticipants = Array.from(participantMap.values())
     console.log(`🔄 After deduplication: ${deduplicatedParticipants.length} unique participants (${duplicatesFound} duplicates merged)`)
 
-    // Enhanced participant storage with better validation
+    // Enhanced participant storage with the new unique constraint
     let processedCount = 0
     let errorCount = 0
     const processingErrors: string[] = []
@@ -332,6 +333,7 @@ serve(async (req) => {
         }
 
         if (isValidEmail && !isLikelyBot && cleanEmail !== '') {
+          // Now using the proper unique constraint on (webinar_id, email)
           const { error: upsertError } = await supabaseClient
             .from('attendees')
             .upsert({
@@ -347,17 +349,18 @@ serve(async (req) => {
               updated_at: new Date().toISOString(),
             }, {
               onConflict: 'webinar_id,email',
+              ignoreDuplicates: false,
             })
 
           if (!upsertError) {
             processedCount++
-            if (processedCount % 50 === 0) {
-              console.log(`💾 Processed ${processedCount}/${deduplicatedParticipants.length} participants...`)
+            if (processedCount % 25 === 0) {
+              console.log(`💾 Successfully stored ${processedCount}/${deduplicatedParticipants.length} participants...`)
             }
           } else {
             console.error('❌ Error upserting participant:', upsertError)
             errorCount++
-            processingErrors.push(`${participant.name}: ${upsertError.message}`)
+            processingErrors.push(`${participant.name} (${cleanEmail}): ${upsertError.message}`)
           }
         } else {
           console.log(`⏭️ Filtered out: ${participant.name} (${cleanEmail}) - Valid email: ${isValidEmail}, Bot: ${isLikelyBot}`)
@@ -370,7 +373,7 @@ serve(async (req) => {
       }
     }
 
-    console.log(`🎉 Participant sync completed: ${processedCount} processed, ${errorCount} errors`)
+    console.log(`🎉 Participant sync completed: ${processedCount} stored successfully, ${errorCount} errors`)
 
     // Update webinar attendee count
     if (webinar_id && processedCount > 0) {
@@ -390,8 +393,8 @@ serve(async (req) => {
     }
 
     // Update sync log with comprehensive results
-    const syncStatus = errorCount > 0 && processedCount === 0 ? 'failed' : 'completed'
-    const errorMessage = errorCount > 0 ? `${errorCount} participants failed to process. First few errors: ${processingErrors.slice(0, 3).join('; ')}` : null
+    const syncStatus = processedCount > 0 ? 'completed' : (errorCount > 0 ? 'failed' : 'completed')
+    const errorMessage = errorCount > 0 ? `${errorCount} participants had processing issues. Successfully stored: ${processedCount}. First few errors: ${processingErrors.slice(0, 3).join('; ')}` : null
     
     await supabaseClient
       .from('sync_logs')
@@ -405,13 +408,14 @@ serve(async (req) => {
 
     return new Response(
       JSON.stringify({ 
-        success: true, 
+        success: processedCount > 0,
         participants_synced: processedCount,
         total_found: allParticipants.length,
         after_deduplication: deduplicatedParticipants.length,
         errors: errorCount,
         api_used: apiUsed,
-        processing_errors: processingErrors.slice(0, 5) // Include first 5 errors for debugging
+        error_summary: errorCount > 0 ? `${errorCount} processing errors occurred` : null,
+        message: processedCount > 0 ? `Successfully stored ${processedCount} attendees` : `No attendees stored - check filtering criteria`
       }),
       {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
