@@ -142,6 +142,66 @@ export type Database = {
           },
         ]
       }
+      live_participant_sessions: {
+        Row: {
+          attendee_id: string | null
+          attention_score: number | null
+          connection_quality: Json | null
+          created_at: string
+          device_info: Json | null
+          id: string
+          interaction_count: number | null
+          is_active: boolean | null
+          joined_at: string
+          last_seen: string | null
+          organization_id: string
+          participant_email: string | null
+          participant_name: string | null
+          session_duration: number | null
+          updated_at: string
+          webinar_id: string
+          zoom_participant_id: string | null
+        }
+        Insert: {
+          attendee_id?: string | null
+          attention_score?: number | null
+          connection_quality?: Json | null
+          created_at?: string
+          device_info?: Json | null
+          id?: string
+          interaction_count?: number | null
+          is_active?: boolean | null
+          joined_at?: string
+          last_seen?: string | null
+          organization_id: string
+          participant_email?: string | null
+          participant_name?: string | null
+          session_duration?: number | null
+          updated_at?: string
+          webinar_id: string
+          zoom_participant_id?: string | null
+        }
+        Update: {
+          attendee_id?: string | null
+          attention_score?: number | null
+          connection_quality?: Json | null
+          created_at?: string
+          device_info?: Json | null
+          id?: string
+          interaction_count?: number | null
+          is_active?: boolean | null
+          joined_at?: string
+          last_seen?: string | null
+          organization_id?: string
+          participant_email?: string | null
+          participant_name?: string | null
+          session_duration?: number | null
+          updated_at?: string
+          webinar_id?: string
+          zoom_participant_id?: string | null
+        }
+        Relationships: []
+      }
       organizations: {
         Row: {
           created_at: string
@@ -503,6 +563,87 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      webinar_live_events: {
+        Row: {
+          created_at: string
+          event_data: Json | null
+          event_type: string
+          id: string
+          organization_id: string
+          participant_id: string | null
+          processed: boolean | null
+          timestamp: string
+          webinar_id: string
+        }
+        Insert: {
+          created_at?: string
+          event_data?: Json | null
+          event_type: string
+          id?: string
+          organization_id: string
+          participant_id?: string | null
+          processed?: boolean | null
+          timestamp?: string
+          webinar_id: string
+        }
+        Update: {
+          created_at?: string
+          event_data?: Json | null
+          event_type?: string
+          id?: string
+          organization_id?: string
+          participant_id?: string | null
+          processed?: boolean | null
+          timestamp?: string
+          webinar_id?: string
+        }
+        Relationships: []
+      }
+      webinar_live_status: {
+        Row: {
+          created_at: string
+          current_participants: number | null
+          id: string
+          is_live: boolean | null
+          last_activity: string | null
+          live_metrics: Json | null
+          organization_id: string
+          peak_participants: number | null
+          started_at: string | null
+          status: string
+          updated_at: string
+          webinar_id: string
+        }
+        Insert: {
+          created_at?: string
+          current_participants?: number | null
+          id?: string
+          is_live?: boolean | null
+          last_activity?: string | null
+          live_metrics?: Json | null
+          organization_id: string
+          peak_participants?: number | null
+          started_at?: string | null
+          status?: string
+          updated_at?: string
+          webinar_id: string
+        }
+        Update: {
+          created_at?: string
+          current_participants?: number | null
+          id?: string
+          is_live?: boolean | null
+          last_activity?: string | null
+          live_metrics?: Json | null
+          organization_id?: string
+          peak_participants?: number | null
+          started_at?: string | null
+          status?: string
+          updated_at?: string
+          webinar_id?: string
+        }
+        Relationships: []
       }
       webinar_notifications: {
         Row: {
@@ -1778,11 +1919,54 @@ export type Database = {
           },
         ]
       }
+      zoom_webhook_events: {
+        Row: {
+          created_at: string
+          event_ts: string | null
+          event_type: string
+          id: string
+          organization_id: string
+          payload: Json
+          processed: boolean | null
+          processing_error: string | null
+          webhook_id: string | null
+          webinar_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          event_ts?: string | null
+          event_type: string
+          id?: string
+          organization_id: string
+          payload: Json
+          processed?: boolean | null
+          processing_error?: string | null
+          webhook_id?: string | null
+          webinar_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          event_ts?: string | null
+          event_type?: string
+          id?: string
+          organization_id?: string
+          payload?: Json
+          processed?: boolean | null
+          processing_error?: string | null
+          webhook_id?: string | null
+          webinar_id?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
+      cleanup_inactive_sessions: {
+        Args: Record<PropertyKey, never>
+        Returns: undefined
+      }
       get_user_organization_id: {
         Args: Record<PropertyKey, never>
         Returns: string

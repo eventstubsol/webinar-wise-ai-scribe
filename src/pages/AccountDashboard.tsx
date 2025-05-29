@@ -1,4 +1,3 @@
-
 import { useAuth } from "@/hooks/useAuth";
 import { useZoomIntegration } from "@/hooks/useZoomIntegration";
 import Header from "@/components/Header";
@@ -6,6 +5,7 @@ import Sidebar from "@/components/Sidebar";
 import UserProfileCard from "@/components/UserProfileCard";
 import ZoomConnectionCard from "@/components/ZoomConnectionCard";
 import RecentActivityCard from "@/components/RecentActivityCard";
+import RealtimeDashboard from "@/components/RealtimeDashboard";
 
 const AccountDashboard = () => {
   const { user } = useAuth();
@@ -52,6 +52,17 @@ const AccountDashboard = () => {
                   <p className="text-sm text-blue-600">Attention scores, engagement timelines, and interaction analytics</p>
                 </div>
               </div>
+            </div>
+
+            {/* Real-time Dashboard */}
+            <div className="mb-6">
+              <div className="bg-gradient-to-r from-green-50 to-blue-50 border border-green-200 rounded-lg p-6 mb-6">
+                <h3 className="text-lg font-semibold text-green-900 mb-3">⚡ Real-time Monitoring (Phase 2)</h3>
+                <p className="text-green-700 mb-4">
+                  Live webinar tracking, real-time participant analytics, and instant event notifications
+                </p>
+              </div>
+              <RealtimeDashboard />
             </div>
 
             <div className="grid grid-cols-1 gap-6">

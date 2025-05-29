@@ -1,4 +1,3 @@
-
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -6,6 +5,7 @@ import { Calendar, Users, Clock, RefreshCw, ExternalLink } from "lucide-react";
 import { useWebinarData } from "@/hooks/useWebinarData";
 import { useZoomIntegration } from "@/hooks/useZoomIntegration";
 import { WebinarStatus } from "@/types/sync";
+import { useRealtimeWebinars } from "@/hooks/useRealtimeWebinars";
 
 interface WebinarsListProps {
   filters: {
@@ -18,6 +18,7 @@ interface WebinarsListProps {
 const WebinarsList = ({ filters }: WebinarsListProps) => {
   const { webinars, loading } = useWebinarData();
   const { syncing, syncWebinarData } = useZoomIntegration();
+  const { getWebinarStatus } = useRealtimeWebinars();
 
   const filteredWebinars = webinars.filter((webinar) => {
     // Search filter
@@ -35,7 +36,37 @@ const WebinarsList = ({ filters }: WebinarsListProps) => {
     return true;
   });
 
-  const getStatusBadge = (status: WebinarStatus) => {
+  const getStatusBadge = (status: WebinarStatus, webinarId: string) => {
+    const liveStatus = getWebinarStatus(webinarId);
+    
+    // Show real-time status if available
+    if (liveStatus?.is_live) {
+      return (
+        <div className="flex items-center space-x-2">
+          <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+          <Badge variant="outline" className="bg-green-100 text-green-800">
+            LIVE
+          </Badge>
+        </div>
+      );
+    }
+
+    // Show participant count if available
+    if (liveStatus?.current_participants > 0) {
+      return (
+        <div className="flex items-center space-x-2">
+          <Badge variant="outline" className="bg-blue-100 text-blue-800">
+            {liveStatus.current_participants} active
+          </Badge>
+          {getOriginalStatusBadge(status)}
+        </div>
+      );
+    }
+
+    return getOriginalStatusBadge(status);
+  };
+
+  const getOriginalStatusBadge = (status: WebinarStatus) => {
     switch (status) {
       case 'upcoming':
         return <Badge variant="outline" className="bg-blue-100 text-blue-800">Upcoming</Badge>;
@@ -48,6 +79,24 @@ const WebinarsList = ({ filters }: WebinarsListProps) => {
       default:
         return <Badge variant="outline" className="bg-gray-100 text-gray-800">Scheduled</Badge>;
     }
+  };
+
+  const getWebinarMetrics = (webinarId: string) => {
+    const liveStatus = getWebinarStatus(webinarId);
+    if (!liveStatus) return null;
+
+    return (
+      <div className="text-xs text-gray-500 mt-1">
+        {liveStatus.peak_participants > 0 && (
+          <span>Peak: {liveStatus.peak_participants} participants</span>
+        )}
+        {liveStatus.started_at && (
+          <span className="ml-2">
+            Started: {new Date(liveStatus.started_at).toLocaleTimeString()}
+          </span>
+        )}
+      </div>
+    );
   };
 
   if (loading) {
@@ -86,7 +135,7 @@ const WebinarsList = ({ filters }: WebinarsListProps) => {
               <CardHeader className="pb-3">
                 <div className="flex items-start justify-between">
                   <CardTitle className="text-lg leading-tight">{webinar.title}</CardTitle>
-                  {getStatusBadge(webinar.status)}
+                  {getStatusBadge(webinar.status, webinar.id)}
                 </div>
               </CardHeader>
               <CardContent className="space-y-3">
