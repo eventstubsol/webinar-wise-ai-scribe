@@ -64,12 +64,14 @@ const ZoomIntegration = () => {
 
         <TabsContent value="connection" className="space-y-4">
           {!isConnected ? (
-            <ZoomConnectionWizard />
+            <ZoomConnectionWizard 
+              isOpen={true}
+              onClose={() => {}}
+            />
           ) : (
             <ZoomConnectionCard 
-              onDisconnect={disconnectZoom}
-              onRefresh={refreshConnection}
-              loading={loading}
+              zoomConnection={zoomConnection}
+              isConnected={isConnected}
             />
           )}
         </TabsContent>
@@ -83,7 +85,12 @@ const ZoomIntegration = () => {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {syncing && <SyncProgressIndicator progress={syncProgress?.progress || 0} />}
+              {syncing && (
+                <SyncProgressIndicator 
+                  syncing={syncing}
+                  progress={syncProgress?.progress || 0} 
+                />
+              )}
               
               <div className="flex space-x-4">
                 <Button 
@@ -180,7 +187,7 @@ const ZoomIntegration = () => {
                         <div>
                           <p className="font-medium">{job.job_type}</p>
                           <p className="text-sm text-muted-foreground">
-                            {new Date(job.started_at || job.created_at).toLocaleString()}
+                            {new Date(job.started_at || job.created_at || new Date()).toLocaleString()}
                           </p>
                           {job.metadata?.webinar_title && (
                             <p className="text-xs text-muted-foreground">
