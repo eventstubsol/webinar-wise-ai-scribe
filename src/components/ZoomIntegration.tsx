@@ -1,5 +1,6 @@
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useZoomIntegration } from '@/hooks/useZoomIntegration';
 import { useJobProcessor } from '@/hooks/useJobProcessor';
@@ -10,6 +11,7 @@ import ZoomJobsTab from './ZoomJobsTab';
 import PollsDebugger from './PollsDebugger';
 
 const ZoomIntegration = () => {
+  const [searchParams] = useSearchParams();
   const {
     zoomConnection,
     loading,
@@ -28,13 +30,23 @@ const ZoomIntegration = () => {
 
   const { processing, processJobs } = useJobProcessor();
 
+  // Get subtab from URL parameters, default to "connection"
+  const subtabFromUrl = searchParams.get('subtab') || 'connection';
+  const [activeSubtab, setActiveSubtab] = useState(subtabFromUrl);
+
+  // Update subtab when URL changes
+  useEffect(() => {
+    const subtabFromUrl = searchParams.get('subtab') || 'connection';
+    setActiveSubtab(subtabFromUrl);
+  }, [searchParams]);
+
   const handleRefresh = async () => {
     await Promise.all([refreshConnection(), refreshLogs(), refreshJobs()]);
   };
 
   return (
     <div className="space-y-6">
-      <Tabs defaultValue="connection" className="w-full">
+      <Tabs value={activeSubtab} onValueChange={setActiveSubtab} className="w-full">
         <TabsList className="grid w-full grid-cols-5">
           <TabsTrigger value="connection">Connection</TabsTrigger>
           <TabsTrigger value="sync">Sync Control</TabsTrigger>

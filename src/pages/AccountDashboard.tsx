@@ -1,15 +1,21 @@
 
-import { useAuth } from "@/hooks/useAuth";
-import { useZoomIntegration } from "@/hooks/useZoomIntegration";
-import Header from "@/components/Header";
-import Sidebar from "@/components/Sidebar";
-import UserProfileCard from "@/components/UserProfileCard";
-import ZoomConnectionCard from "@/components/ZoomConnectionCard";
-import RecentActivityCard from "@/components/RecentActivityCard";
+import React from 'react';
+import { useNavigate } from 'react-router-dom';
+import Header from '@/components/Header';
+import Sidebar from '@/components/Sidebar';
+import UserProfileCard from '@/components/UserProfileCard';
+import ZoomConnectionCard from '@/components/ZoomConnectionCard';
+import { useZoomConnection } from '@/hooks/useZoomConnection';
+import { Button } from '@/components/ui/button';
+import { Bug } from 'lucide-react';
 
 const AccountDashboard = () => {
-  const { user } = useAuth();
-  const { zoomConnection, syncLogs } = useZoomIntegration();
+  const navigate = useNavigate();
+  const { zoomConnection, isConnected } = useZoomConnection();
+
+  const navigateToDebugPolls = () => {
+    navigate('/?tab=integration&subtab=debug');
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -17,22 +23,27 @@ const AccountDashboard = () => {
       <div className="flex h-[calc(100vh-80px)]">
         <Sidebar />
         <main className="flex-1 p-6 overflow-auto">
-          <div className="max-w-7xl mx-auto">
-            <div className="mb-6">
-              <h1 className="text-3xl font-bold text-gray-900 mb-2">Account Dashboard</h1>
-              <p className="text-gray-600">Manage your account settings and Zoom integration</p>
+          <div className="max-w-4xl mx-auto space-y-6">
+            <div className="flex items-center justify-between">
+              <h1 className="text-3xl font-bold text-gray-900">Account Settings</h1>
+              {isConnected && (
+                <Button 
+                  onClick={navigateToDebugPolls}
+                  className="flex items-center space-x-2"
+                  variant="outline"
+                >
+                  <Bug className="w-4 h-4" />
+                  <span>Debug Polls</span>
+                </Button>
+              )}
             </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-              <UserProfileCard user={user} />
+            
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <UserProfileCard />
               <ZoomConnectionCard 
-                zoomConnection={zoomConnection} 
-                isConnected={!!zoomConnection && zoomConnection.connection_status === 'active'}
+                zoomConnection={zoomConnection}
+                isConnected={isConnected}
               />
-            </div>
-
-            <div className="grid grid-cols-1 gap-6">
-              <RecentActivityCard syncLogs={syncLogs} />
             </div>
           </div>
         </main>
