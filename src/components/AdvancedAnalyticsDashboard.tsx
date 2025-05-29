@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -7,7 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell, Area, AreaChart } from 'recharts';
-import { TrendingUp, TrendingDown, Users, MessageSquare, PollH, HelpCircle, Clock, Target, DollarSign, Award } from 'lucide-react';
+import { TrendingUp, TrendingDown, Users, MessageSquare, BarChart3, HelpCircle, Clock, Target, DollarSign, Award } from 'lucide-react';
 import { useAdvancedAnalytics } from '@/hooks/useAdvancedAnalytics';
 import { useWebinarData } from '@/hooks/useWebinarData';
 
@@ -191,7 +190,7 @@ const AdvancedAnalyticsDashboard = () => {
                 <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
-                      <PollH className="h-5 w-5" />
+                      <BarChart3 className="h-5 w-5" />
                       Poll Responses
                     </CardTitle>
                   </CardHeader>
