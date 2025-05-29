@@ -1,4 +1,3 @@
-
 import { useAuth } from "@/hooks/useAuth";
 import { useSyncLogs } from "@/hooks/useSyncLogs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -7,7 +6,8 @@ import ZoomIntegration from "@/components/ZoomIntegration";
 import UserProfileCard from "@/components/UserProfileCard";
 import RecentActivityCard from "@/components/RecentActivityCard";
 import BulkRegistrationRecovery from "@/components/BulkRegistrationRecovery";
-import { Settings, Database, User, Activity } from "lucide-react";
+import BulkAttendeeRecovery from "@/components/BulkAttendeeRecovery";
+import { Settings, Database, User, Activity, Users } from "lucide-react";
 
 const AccountDashboard = () => {
   const { user } = useAuth();
@@ -33,7 +33,7 @@ const AccountDashboard = () => {
       </div>
 
       <Tabs defaultValue="profile" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="grid w-full grid-cols-5">
           <TabsTrigger value="profile" className="flex items-center gap-2">
             <User className="w-4 h-4" />
             Profile
@@ -44,7 +44,11 @@ const AccountDashboard = () => {
           </TabsTrigger>
           <TabsTrigger value="data-recovery" className="flex items-center gap-2">
             <Database className="w-4 h-4" />
-            Data Recovery
+            Registration Recovery
+          </TabsTrigger>
+          <TabsTrigger value="attendee-recovery" className="flex items-center gap-2">
+            <Users className="w-4 h-4" />
+            Attendee Recovery
           </TabsTrigger>
           <TabsTrigger value="activity" className="flex items-center gap-2">
             <Activity className="w-4 h-4" />
@@ -62,6 +66,10 @@ const AccountDashboard = () => {
 
         <TabsContent value="data-recovery" className="space-y-6">
           <BulkRegistrationRecovery />
+        </TabsContent>
+
+        <TabsContent value="attendee-recovery" className="space-y-6">
+          <BulkAttendeeRecovery />
         </TabsContent>
 
         <TabsContent value="activity" className="space-y-6">

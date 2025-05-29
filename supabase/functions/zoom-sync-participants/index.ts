@@ -1,4 +1,3 @@
-
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
@@ -10,14 +9,18 @@ const corsHeaders = {
 interface ZoomParticipant {
   id: string
   user_id: string
+  user_uuid?: string
   name: string
   user_email: string
   join_time: string
   leave_time: string
   duration: number
+  attentiveness_score?: string
+  failover?: boolean
+  status?: string
 }
 
-// Token management functions (same as webinars sync)
+// Token management functions
 async function decryptCredential(encryptedText: string, key: string): Promise<string> {
   try {
     const combined = Uint8Array.from(atob(encryptedText), c => c.charCodeAt(0))
@@ -97,6 +100,55 @@ async function getZoomAccessToken(userId: string, supabaseClient: any): Promise<
   }
 }
 
+async function fetchParticipantsWithRetry(url: string, accessToken: string, maxRetries = 3): Promise<any> {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      console.log(`📡 Fetching participants (attempt ${attempt}/${maxRetries}): ${url}`)
+      
+      const response = await fetch(url, {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+      })
+
+      const data = await response.json()
+      
+      if (!response.ok) {
+        if (response.status === 429) {
+          // Rate limit - wait longer before retry
+          const waitTime = Math.pow(2, attempt) * 2000 // Exponential backoff
+          console.log(`⏸️ Rate limited, waiting ${waitTime}ms before retry...`)
+          await new Promise(resolve => setTimeout(resolve, waitTime))
+          continue
+        }
+        
+        if (response.status === 404) {
+          console.log('ℹ️ No participants found (404) - this is normal for some webinars')
+          return { participants: [], total_records: 0 }
+        }
+        
+        throw new Error(`Zoom API error (${response.status}): ${data.message || data.error}`)
+      }
+
+      console.log(`✅ Successfully fetched participants data`)
+      return data
+      
+    } catch (error) {
+      console.error(`❌ Attempt ${attempt} failed:`, error)
+      
+      if (attempt === maxRetries) {
+        throw error
+      }
+      
+      // Wait before retry with exponential backoff
+      const waitTime = Math.pow(2, attempt) * 1000
+      console.log(`⏸️ Waiting ${waitTime}ms before retry...`)
+      await new Promise(resolve => setTimeout(resolve, waitTime))
+    }
+  }
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -114,9 +166,9 @@ serve(async (req) => {
       throw new Error('Organization ID, User ID, and Zoom webinar ID are required')
     }
 
-    console.log('Starting participant sync for webinar:', zoom_webinar_id, 'user:', user_id)
+    console.log('🚀 Starting enhanced participant sync for webinar:', zoom_webinar_id)
 
-    // Get access token using the new token management
+    // Get access token
     const accessToken = await getZoomAccessToken(user_id, supabaseClient)
 
     // Log sync start
@@ -132,107 +184,166 @@ serve(async (req) => {
       .select()
       .single()
 
-    console.log('Created sync log:', syncLog?.id)
+    console.log('📝 Created sync log:', syncLog?.id)
 
-    // Fetch participants from Zoom API
+    // Try both API endpoints for maximum compatibility
     let allParticipants: ZoomParticipant[] = []
-    let nextPageToken = ''
-    let pageCount = 0
+    let totalFound = 0
+    let apiUsed = 'unknown'
     
-    do {
-      pageCount++
-      console.log(`Fetching page ${pageCount} of participants...`)
+    // First try the correct past webinars endpoint
+    try {
+      console.log('🔍 Trying past webinars participants endpoint...')
       
-      const params = new URLSearchParams({
-        page_size: '300',
-      })
+      let nextPageToken = ''
+      let pageCount = 0
       
-      if (nextPageToken) {
-        params.append('next_page_token', nextPageToken)
+      do {
+        pageCount++
+        console.log(`📄 Fetching page ${pageCount} of participants...`)
+        
+        const params = new URLSearchParams({
+          page_size: '300',
+          include_fields: 'registrant_id,status,join_time,leave_time,duration,attentiveness_score,failover'
+        })
+        
+        if (nextPageToken) {
+          params.append('next_page_token', nextPageToken)
+        }
+
+        const url = `https://api.zoom.us/v2/past_webinars/${zoom_webinar_id}/participants?${params}`
+        const data = await fetchParticipantsWithRetry(url, accessToken)
+        
+        const participants = data.participants || []
+        allParticipants = allParticipants.concat(participants)
+        nextPageToken = data.next_page_token || ''
+        totalFound = data.total_records || allParticipants.length
+        
+        console.log(`📊 Page ${pageCount}: Found ${participants.length} participants (Total so far: ${allParticipants.length})`)
+        
+        // Add delay to respect rate limits
+        await new Promise(resolve => setTimeout(resolve, 300))
+        
+      } while (nextPageToken && pageCount < 50) // Increased safety limit
+
+      apiUsed = 'past_webinars'
+      console.log(`✅ Past webinars API successful: ${allParticipants.length} participants found`)
+      
+    } catch (pastWebinarError) {
+      console.log('⚠️ Past webinars endpoint failed, trying metrics endpoint as fallback...')
+      console.error('Past webinar error:', pastWebinarError)
+      
+      // Fallback to metrics endpoint
+      try {
+        let nextPageToken = ''
+        let pageCount = 0
+        
+        do {
+          pageCount++
+          console.log(`📄 Fetching page ${pageCount} of participants (metrics API)...`)
+          
+          const params = new URLSearchParams({
+            page_size: '300',
+          })
+          
+          if (nextPageToken) {
+            params.append('next_page_token', nextPageToken)
+          }
+
+          const url = `https://api.zoom.us/v2/metrics/webinars/${zoom_webinar_id}/participants?${params}`
+          const data = await fetchParticipantsWithRetry(url, accessToken)
+          
+          const participants = data.participants || []
+          allParticipants = allParticipants.concat(participants)
+          nextPageToken = data.next_page_token || ''
+          
+          console.log(`📊 Page ${pageCount}: Found ${participants.length} participants (Total so far: ${allParticipants.length})`)
+          
+          await new Promise(resolve => setTimeout(resolve, 300))
+          
+        } while (nextPageToken && pageCount < 50)
+
+        apiUsed = 'metrics'
+        console.log(`✅ Metrics API successful: ${allParticipants.length} participants found`)
+        
+      } catch (metricsError) {
+        console.error('❌ Both API endpoints failed:', { pastWebinarError, metricsError })
+        throw new Error(`Failed to fetch participants from both endpoints: ${pastWebinarError.message} | ${metricsError.message}`)
       }
+    }
 
-      const response = await fetch(`https://api.zoom.us/v2/metrics/webinars/${zoom_webinar_id}/participants?${params}`, {
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
-        },
-      })
+    console.log(`🎯 Total participants found: ${allParticipants.length} using ${apiUsed} API`)
 
-      const data = await response.json()
-      
-      if (!response.ok) {
-        console.error('Zoom API error:', data)
-        throw new Error(`Zoom API error: ${data.message || data.error}`)
-      }
-
-      const participants = data.participants || []
-      allParticipants = allParticipants.concat(participants)
-      nextPageToken = data.next_page_token || ''
-      
-      console.log(`Page ${pageCount}: Found ${participants.length} participants`)
-      
-      // Add small delay to respect rate limits
-      await new Promise(resolve => setTimeout(resolve, 100))
-      
-    } while (nextPageToken && pageCount < 10) // Safety limit
-
-    console.log(`Total participants found: ${allParticipants.length}`)
-
-    // Process and deduplicate participants by email
+    // Enhanced participant processing with better deduplication
     const participantMap = new Map<string, ZoomParticipant>()
+    let duplicatesFound = 0
     
     for (const participant of allParticipants) {
-      const email = participant.user_email?.toLowerCase() || `unknown_${participant.id}`
-      const existing = participantMap.get(email)
+      const email = participant.user_email?.toLowerCase()?.trim() || `unknown_${participant.id || participant.user_id}`
       
-      if (!existing || new Date(participant.join_time) < new Date(existing.join_time)) {
-        // Keep the earliest join time for the same email
-        participantMap.set(email, {
-          ...participant,
-          duration: existing ? existing.duration + participant.duration : participant.duration
-        })
-      } else if (existing) {
-        // Aggregate duration for multiple sessions
-        existing.duration += participant.duration
+      if (participantMap.has(email)) {
+        duplicatesFound++
+        const existing = participantMap.get(email)!
+        
+        // Merge data - keep earliest join time and sum durations
+        if (new Date(participant.join_time) < new Date(existing.join_time)) {
+          existing.join_time = participant.join_time
+        }
+        if (new Date(participant.leave_time) > new Date(existing.leave_time)) {
+          existing.leave_time = participant.leave_time
+        }
+        existing.duration = (existing.duration || 0) + (participant.duration || 0)
+      } else {
+        participantMap.set(email, { ...participant })
       }
     }
 
     const deduplicatedParticipants = Array.from(participantMap.values())
-    console.log(`After deduplication: ${deduplicatedParticipants.length} unique participants`)
+    console.log(`🔄 After deduplication: ${deduplicatedParticipants.length} unique participants (${duplicatesFound} duplicates merged)`)
 
-    // Calculate engagement scores and store participants
+    // Enhanced participant storage with better validation
     let processedCount = 0
     let errorCount = 0
+    const processingErrors: string[] = []
     
     for (const participant of deduplicatedParticipants) {
       try {
-        // Simple engagement score calculation (0-10 based on duration)
-        const maxDuration = Math.max(...deduplicatedParticipants.map(p => p.duration))
-        const engagementScore = maxDuration > 0 ? Math.min(10, (participant.duration / maxDuration) * 10) : 0
-
-        // Clean and validate email
+        // Validate email
         const cleanEmail = participant.user_email?.toLowerCase().trim() || ''
         const isValidEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)
         
-        // Bot detection (simple heuristics)
+        // Enhanced bot detection
+        const name = participant.name || ''
         const isLikelyBot = 
-          participant.name?.toLowerCase().includes('bot') ||
-          participant.name?.toLowerCase().includes('test') ||
+          name.toLowerCase().includes('bot') ||
+          name.toLowerCase().includes('test') ||
+          name.toLowerCase().includes('zoom') ||
+          name.toLowerCase().includes('recording') ||
           participant.duration < 30 // Less than 30 seconds
+        
+        // Enhanced engagement score calculation
+        const maxDuration = Math.max(...deduplicatedParticipants.map(p => p.duration || 0))
+        let engagementScore = 0
+        
+        if (maxDuration > 0) {
+          const durationScore = Math.min(10, ((participant.duration || 0) / maxDuration) * 10)
+          const attentivenessBonus = participant.attentiveness_score ? parseFloat(participant.attentiveness_score) / 10 : 0
+          engagementScore = Math.min(10, durationScore + attentivenessBonus)
+        }
 
-        if (isValidEmail && !isLikelyBot) {
+        if (isValidEmail && !isLikelyBot && cleanEmail !== '') {
           const { error: upsertError } = await supabaseClient
             .from('attendees')
             .upsert({
               webinar_id,
               organization_id,
-              zoom_user_id: participant.user_id,
-              name: participant.name,
+              zoom_user_id: participant.user_id || participant.id,
+              name: participant.name || 'Unknown Attendee',
               email: cleanEmail,
               join_time: participant.join_time,
               leave_time: participant.leave_time,
-              duration_minutes: Math.round(participant.duration / 60),
-              engagement_score: Math.round(engagementScore * 10) / 10, // Round to 1 decimal
+              duration_minutes: Math.round((participant.duration || 0) / 60),
+              engagement_score: Math.round(engagementScore * 10) / 10,
               updated_at: new Date().toISOString(),
             }, {
               onConflict: 'webinar_id,email',
@@ -240,36 +351,47 @@ serve(async (req) => {
 
           if (!upsertError) {
             processedCount++
-            if (processedCount % 25 === 0) {
-              console.log(`Processed ${processedCount} participants...`)
+            if (processedCount % 50 === 0) {
+              console.log(`💾 Processed ${processedCount}/${deduplicatedParticipants.length} participants...`)
             }
           } else {
-            console.error('Error upserting participant:', upsertError)
+            console.error('❌ Error upserting participant:', upsertError)
             errorCount++
+            processingErrors.push(`${participant.name}: ${upsertError.message}`)
           }
         } else {
-          console.log(`Filtered out participant: ${participant.name} (${cleanEmail}) - Bot: ${isLikelyBot}, Valid email: ${isValidEmail}`)
+          console.log(`⏭️ Filtered out: ${participant.name} (${cleanEmail}) - Valid email: ${isValidEmail}, Bot: ${isLikelyBot}`)
         }
         
       } catch (error) {
-        console.error(`Error processing participant ${participant.id}:`, error)
+        console.error(`❌ Error processing participant ${participant.id}:`, error)
         errorCount++
+        processingErrors.push(`${participant.name}: ${error.message}`)
       }
     }
 
-    console.log(`Participant sync completed: ${processedCount} processed, ${errorCount} errors`)
+    console.log(`🎉 Participant sync completed: ${processedCount} processed, ${errorCount} errors`)
 
-    // Update attendee count in webinar
+    // Update webinar attendee count
     if (webinar_id && processedCount > 0) {
-      await supabaseClient
+      const { error: updateError } = await supabaseClient
         .from('webinars')
-        .update({ attendees_count: processedCount })
+        .update({ 
+          attendees_count: processedCount,
+          updated_at: new Date().toISOString()
+        })
         .eq('id', webinar_id)
+
+      if (updateError) {
+        console.error('⚠️ Failed to update webinar attendee count:', updateError)
+      } else {
+        console.log(`📊 Updated webinar attendee count to ${processedCount}`)
+      }
     }
 
-    // Update sync log
+    // Update sync log with comprehensive results
     const syncStatus = errorCount > 0 && processedCount === 0 ? 'failed' : 'completed'
-    const errorMessage = errorCount > 0 ? `${errorCount} participants failed to process` : null
+    const errorMessage = errorCount > 0 ? `${errorCount} participants failed to process. First few errors: ${processingErrors.slice(0, 3).join('; ')}` : null
     
     await supabaseClient
       .from('sync_logs')
@@ -287,7 +409,9 @@ serve(async (req) => {
         participants_synced: processedCount,
         total_found: allParticipants.length,
         after_deduplication: deduplicatedParticipants.length,
-        errors: errorCount
+        errors: errorCount,
+        api_used: apiUsed,
+        processing_errors: processingErrors.slice(0, 5) // Include first 5 errors for debugging
       }),
       {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -295,7 +419,7 @@ serve(async (req) => {
     )
 
   } catch (error) {
-    console.error('Participant sync error:', error)
+    console.error('💥 Participant sync error:', error)
     
     // Try to update sync log with error
     try {
@@ -304,13 +428,13 @@ serve(async (req) => {
         Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
       )
       
-      const { user_id, webinar_id } = await req.json().catch(() => ({}))
+      const { user_id, webinar_id, organization_id } = await req.json().catch(() => ({}))
       
       if (user_id) {
         await supabaseClient
           .from('sync_logs')
           .insert({
-            organization_id: 'unknown',
+            organization_id: organization_id || 'unknown',
             user_id,
             webinar_id,
             sync_type: 'participants',
@@ -324,7 +448,11 @@ serve(async (req) => {
     }
     
     return new Response(
-      JSON.stringify({ error: error.message }),
+      JSON.stringify({ 
+        success: false,
+        error: error.message,
+        participants_synced: 0
+      }),
       {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
