@@ -20,7 +20,7 @@ const AccountDashboard = () => {
           <div className="max-w-7xl mx-auto">
             <div className="mb-6">
               <h1 className="text-3xl font-bold text-gray-900 mb-2">Account Dashboard</h1>
-              <p className="text-gray-600">Manage your account settings and Zoom integration</p>
+              <p className="text-gray-600">Manage your account settings and enhanced Zoom integration with comprehensive data collection</p>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
@@ -29,6 +29,29 @@ const AccountDashboard = () => {
                 zoomConnection={zoomConnection} 
                 isConnected={!!zoomConnection && zoomConnection.connection_status === 'active'}
               />
+            </div>
+
+            {/* Enhanced Features Information */}
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 mb-6">
+              <h3 className="text-lg font-semibold text-blue-900 mb-3">🚀 Enhanced Data Collection Features</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="bg-white rounded-lg p-4 border border-blue-100">
+                  <h4 className="font-medium text-blue-800 mb-2">📋 Webinar Templates</h4>
+                  <p className="text-sm text-blue-600">Sync and track webinar templates, branding, and source tracking</p>
+                </div>
+                <div className="bg-white rounded-lg p-4 border border-blue-100">
+                  <h4 className="font-medium text-blue-800 mb-2">📝 Registration Analytics</h4>
+                  <p className="text-sm text-blue-600">Enhanced registration questions and detailed response tracking</p>
+                </div>
+                <div className="bg-white rounded-lg p-4 border border-blue-100">
+                  <h4 className="font-medium text-blue-800 mb-2">🎥 Recording Analytics</h4>
+                  <p className="text-sm text-blue-600">View counts, transcripts, and detailed recording usage data</p>
+                </div>
+                <div className="bg-white rounded-lg p-4 border border-blue-100">
+                  <h4 className="font-medium text-blue-800 mb-2">👥 Participant Insights</h4>
+                  <p className="text-sm text-blue-600">Attention scores, engagement timelines, and interaction analytics</p>
+                </div>
+              </div>
             </div>
 
             <div className="grid grid-cols-1 gap-6">

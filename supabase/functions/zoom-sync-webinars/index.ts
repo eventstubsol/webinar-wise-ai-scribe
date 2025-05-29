@@ -6,6 +6,10 @@ import { processWebinarDataWithQualityFixes } from './webinar-data-processor.ts'
 import { fetchWebinarsFromZoom, getWebinarDetails } from './webinar-fetcher.ts'
 import { createSyncLog, updateSyncLog, logSyncError } from './sync-logger.ts'
 import { processWebinarComprehensiveData } from './data-processor.ts'
+import { processWebinarTemplates, linkWebinarToTemplate } from './template-processor.ts'
+import { processEnhancedRegistrationData } from './registration-processor.ts'
+import { processRecordingAnalytics } from './recording-analytics-processor.ts'
+import { processParticipantAnalytics } from './participant-analytics-processor.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -29,7 +33,7 @@ serve(async (req) => {
       throw new Error('Organization ID and User ID are required')
     }
 
-    console.log('Starting enhanced webinar sync with quality fixes for user:', user_id, 'org:', organization_id)
+    console.log('Starting enhanced comprehensive webinar sync for user:', user_id, 'org:', organization_id)
 
     // Get access token using the new token management
     const accessToken = await getZoomAccessToken(user_id, supabaseClient)
@@ -37,16 +41,25 @@ serve(async (req) => {
     // Log sync start
     const syncLog = await createSyncLog(supabaseClient, organization_id, user_id)
 
-    // Fetch webinars from Zoom API
+    // Step 1: Process webinar templates first
+    console.log('Step 1: Processing webinar templates...')
+    const templatesResult = await processWebinarTemplates(organization_id, user_id, supabaseClient, accessToken)
+    console.log(`Templates processed: ${templatesResult.templatesProcessed || 0}`)
+
+    // Step 2: Fetch webinars from Zoom API
+    console.log('Step 2: Fetching webinars from Zoom...')
     const allWebinars = await fetchWebinarsFromZoom(accessToken)
 
     // Process and store webinars with quality fixes
     let processedCount = 0
     let errorCount = 0
     let qualityFixesApplied = 0
+    let enhancedDataCount = 0
     
     for (const zoomWebinar of allWebinars) {
       try {
+        console.log(`\n=== Processing webinar: ${zoomWebinar.topic || zoomWebinar.id} ===`)
+        
         // Get detailed webinar info
         const detailData = await getWebinarDetails(zoomWebinar.id, accessToken)
         
@@ -66,14 +79,34 @@ serve(async (req) => {
             qualityFixesApplied++
           }
 
-          // Process comprehensive settings data
+          const webinarRecord = result.webinarRecord
+          const webinarId = webinarRecord.id
+
+          // Step 3: Link webinar to template source
+          await linkWebinarToTemplate(webinarId, detailData, organization_id, supabaseClient)
+
+          // Step 4: Process enhanced registration data
+          console.log('Processing enhanced registration data...')
+          await processEnhancedRegistrationData(webinarId, detailData.id?.toString(), organization_id, supabaseClient, accessToken)
+
+          // Step 5: Process recording analytics
+          console.log('Processing recording analytics...')
+          await processRecordingAnalytics(webinarId, detailData.id?.toString(), organization_id, supabaseClient, accessToken)
+
+          // Step 6: Process participant analytics
+          console.log('Processing participant analytics...')
+          await processParticipantAnalytics(webinarId, detailData.id?.toString(), organization_id, supabaseClient, accessToken)
+
+          // Step 7: Process comprehensive settings data (existing functionality)
           await processWebinarComprehensiveData(
             detailData, 
-            result.webinarRecord.id, 
+            webinarRecord.id, 
             organization_id, 
             supabaseClient, 
             accessToken
           )
+
+          enhancedDataCount++
 
           // Create detailed sync job for this webinar
           await supabaseClient
@@ -81,18 +114,25 @@ serve(async (req) => {
             .insert({
               organization_id,
               user_id,
-              job_type: 'detailed_sync',
+              job_type: 'enhanced_comprehensive_sync',
               status: 'pending',
               metadata: {
                 webinar_zoom_id: detailData.id?.toString(),
                 organization_id,
                 user_id,
-                created_by: 'enhanced_webinar_sync'
+                enhanced_features: [
+                  'templates',
+                  'registration_analytics',
+                  'recording_analytics', 
+                  'participant_analytics',
+                  'source_tracking'
+                ],
+                created_by: 'enhanced_comprehensive_webinar_sync'
               }
             })
 
-          if (processedCount % 10 === 0) {
-            console.log(`Processed ${processedCount} webinars with quality fixes...`)
+          if (processedCount % 5 === 0) {
+            console.log(`\n📊 Progress: ${processedCount} webinars processed with enhanced data collection...`)
           }
         } else {
           console.error('Error processing webinar:', result.error)
@@ -100,7 +140,7 @@ serve(async (req) => {
         }
         
         // Add delay to respect rate limits
-        await new Promise(resolve => setTimeout(resolve, 300))
+        await new Promise(resolve => setTimeout(resolve, 500))
         
       } catch (error) {
         console.error(`Error processing webinar ${zoomWebinar.id}:`, error)
@@ -108,7 +148,13 @@ serve(async (req) => {
       }
     }
 
-    console.log(`Enhanced webinar sync completed: ${processedCount} processed, ${qualityFixesApplied} with quality fixes, ${errorCount} errors`)
+    console.log(`\n🎉 Enhanced comprehensive webinar sync completed!`)
+    console.log(`📈 Results:`)
+    console.log(`  - ${processedCount} webinars processed`)
+    console.log(`  - ${qualityFixesApplied} webinars with quality fixes applied`)
+    console.log(`  - ${enhancedDataCount} webinars with enhanced analytics`)
+    console.log(`  - ${templatesResult.templatesProcessed || 0} templates processed`)
+    console.log(`  - ${errorCount} errors encountered`)
 
     // Update sync log
     if (syncLog?.id) {
@@ -121,8 +167,17 @@ serve(async (req) => {
         webinars_synced: processedCount,
         total_found: allWebinars.length,
         quality_fixes_applied: qualityFixesApplied,
+        enhanced_data_processed: enhancedDataCount,
+        templates_processed: templatesResult.templatesProcessed || 0,
         errors: errorCount,
         comprehensive_data: true,
+        enhanced_features: [
+          'webinar_templates',
+          'registration_analytics', 
+          'recording_analytics',
+          'participant_analytics',
+          'source_tracking'
+        ],
         detailed_jobs_created: processedCount
       }),
       {
@@ -131,7 +186,7 @@ serve(async (req) => {
     )
 
   } catch (error) {
-    console.error('Enhanced webinar sync error:', error)
+    console.error('Enhanced comprehensive webinar sync error:', error)
     
     // Try to update sync log with error
     try {
