@@ -307,6 +307,65 @@ export type Database = {
           },
         ]
       }
+      participant_behavior_segments: {
+        Row: {
+          average_attendance_rate: number | null
+          average_engagement_score: number | null
+          content_preferences: Json | null
+          created_at: string
+          id: string
+          interaction_patterns: Json | null
+          organization_id: string
+          participant_count: number | null
+          preferred_webinar_times: Json | null
+          retention_rate: number | null
+          segment_criteria: Json
+          segment_description: string | null
+          segment_name: string
+          updated_at: string
+        }
+        Insert: {
+          average_attendance_rate?: number | null
+          average_engagement_score?: number | null
+          content_preferences?: Json | null
+          created_at?: string
+          id?: string
+          interaction_patterns?: Json | null
+          organization_id: string
+          participant_count?: number | null
+          preferred_webinar_times?: Json | null
+          retention_rate?: number | null
+          segment_criteria: Json
+          segment_description?: string | null
+          segment_name: string
+          updated_at?: string
+        }
+        Update: {
+          average_attendance_rate?: number | null
+          average_engagement_score?: number | null
+          content_preferences?: Json | null
+          created_at?: string
+          id?: string
+          interaction_patterns?: Json | null
+          organization_id?: string
+          participant_count?: number | null
+          preferred_webinar_times?: Json | null
+          retention_rate?: number | null
+          segment_criteria?: Json
+          segment_description?: string | null
+          segment_name?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "participant_behavior_segments_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           created_at: string
@@ -467,6 +526,99 @@ export type Database = {
           },
         ]
       }
+      webinar_analytics_summary: {
+        Row: {
+          actual_duration_minutes: number | null
+          analytics_date: string
+          attendance_rate: number | null
+          average_attendance: number | null
+          average_engagement_score: number | null
+          average_watch_time_minutes: number | null
+          completion_rate: number | null
+          created_at: string
+          device_breakdown: Json | null
+          engagement_performance_score: number | null
+          geographic_breakdown: Json | null
+          id: string
+          organization_id: string
+          overall_performance_score: number | null
+          peak_attendance: number | null
+          retention_performance_score: number | null
+          total_attendees: number | null
+          total_chat_messages: number | null
+          total_poll_responses: number | null
+          total_qa_questions: number | null
+          total_registrants: number | null
+          updated_at: string
+          webinar_id: string
+        }
+        Insert: {
+          actual_duration_minutes?: number | null
+          analytics_date?: string
+          attendance_rate?: number | null
+          average_attendance?: number | null
+          average_engagement_score?: number | null
+          average_watch_time_minutes?: number | null
+          completion_rate?: number | null
+          created_at?: string
+          device_breakdown?: Json | null
+          engagement_performance_score?: number | null
+          geographic_breakdown?: Json | null
+          id?: string
+          organization_id: string
+          overall_performance_score?: number | null
+          peak_attendance?: number | null
+          retention_performance_score?: number | null
+          total_attendees?: number | null
+          total_chat_messages?: number | null
+          total_poll_responses?: number | null
+          total_qa_questions?: number | null
+          total_registrants?: number | null
+          updated_at?: string
+          webinar_id: string
+        }
+        Update: {
+          actual_duration_minutes?: number | null
+          analytics_date?: string
+          attendance_rate?: number | null
+          average_attendance?: number | null
+          average_engagement_score?: number | null
+          average_watch_time_minutes?: number | null
+          completion_rate?: number | null
+          created_at?: string
+          device_breakdown?: Json | null
+          engagement_performance_score?: number | null
+          geographic_breakdown?: Json | null
+          id?: string
+          organization_id?: string
+          overall_performance_score?: number | null
+          peak_attendance?: number | null
+          retention_performance_score?: number | null
+          total_attendees?: number | null
+          total_chat_messages?: number | null
+          total_poll_responses?: number | null
+          total_qa_questions?: number | null
+          total_registrants?: number | null
+          updated_at?: string
+          webinar_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "webinar_analytics_summary_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "webinar_analytics_summary_webinar_id_fkey"
+            columns: ["webinar_id"]
+            isOneToOne: false
+            referencedRelation: "webinars"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       webinar_authentication: {
         Row: {
           authentication_domains: string | null
@@ -515,6 +667,215 @@ export type Database = {
             foreignKeyName: "webinar_authentication_webinar_id_fkey"
             columns: ["webinar_id"]
             isOneToOne: true
+            referencedRelation: "webinars"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      webinar_business_metrics: {
+        Row: {
+          attributed_revenue: number | null
+          attribution_model: string | null
+          attribution_window_days: number | null
+          conversion_rate: number | null
+          cost_per_attendee: number | null
+          cost_per_lead: number | null
+          created_at: string
+          direct_revenue: number | null
+          id: string
+          leads_generated: number | null
+          marketing_cost: number | null
+          organization_id: string
+          pipeline_value: number | null
+          platform_cost: number | null
+          production_cost: number | null
+          qualified_leads: number | null
+          roi_percentage: number | null
+          total_cost: number | null
+          updated_at: string
+          webinar_id: string
+        }
+        Insert: {
+          attributed_revenue?: number | null
+          attribution_model?: string | null
+          attribution_window_days?: number | null
+          conversion_rate?: number | null
+          cost_per_attendee?: number | null
+          cost_per_lead?: number | null
+          created_at?: string
+          direct_revenue?: number | null
+          id?: string
+          leads_generated?: number | null
+          marketing_cost?: number | null
+          organization_id: string
+          pipeline_value?: number | null
+          platform_cost?: number | null
+          production_cost?: number | null
+          qualified_leads?: number | null
+          roi_percentage?: number | null
+          total_cost?: number | null
+          updated_at?: string
+          webinar_id: string
+        }
+        Update: {
+          attributed_revenue?: number | null
+          attribution_model?: string | null
+          attribution_window_days?: number | null
+          conversion_rate?: number | null
+          cost_per_attendee?: number | null
+          cost_per_lead?: number | null
+          created_at?: string
+          direct_revenue?: number | null
+          id?: string
+          leads_generated?: number | null
+          marketing_cost?: number | null
+          organization_id?: string
+          pipeline_value?: number | null
+          platform_cost?: number | null
+          production_cost?: number | null
+          qualified_leads?: number | null
+          roi_percentage?: number | null
+          total_cost?: number | null
+          updated_at?: string
+          webinar_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "webinar_business_metrics_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "webinar_business_metrics_webinar_id_fkey"
+            columns: ["webinar_id"]
+            isOneToOne: false
+            referencedRelation: "webinars"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      webinar_comparative_analytics: {
+        Row: {
+          attendance_trend: number | null
+          average_attendance_rate: number | null
+          average_engagement_score: number | null
+          created_at: string
+          engagement_hotspots: Json | null
+          engagement_trend: number | null
+          id: string
+          organization_id: string
+          period_end: string
+          period_start: string
+          period_type: string
+          registration_trend: number | null
+          top_performing_webinars: Json | null
+          total_attendees: number | null
+          total_registrants: number | null
+          total_webinars: number | null
+          updated_at: string
+        }
+        Insert: {
+          attendance_trend?: number | null
+          average_attendance_rate?: number | null
+          average_engagement_score?: number | null
+          created_at?: string
+          engagement_hotspots?: Json | null
+          engagement_trend?: number | null
+          id?: string
+          organization_id: string
+          period_end: string
+          period_start: string
+          period_type: string
+          registration_trend?: number | null
+          top_performing_webinars?: Json | null
+          total_attendees?: number | null
+          total_registrants?: number | null
+          total_webinars?: number | null
+          updated_at?: string
+        }
+        Update: {
+          attendance_trend?: number | null
+          average_attendance_rate?: number | null
+          average_engagement_score?: number | null
+          created_at?: string
+          engagement_hotspots?: Json | null
+          engagement_trend?: number | null
+          id?: string
+          organization_id?: string
+          period_end?: string
+          period_start?: string
+          period_type?: string
+          registration_trend?: number | null
+          top_performing_webinars?: Json | null
+          total_attendees?: number | null
+          total_registrants?: number | null
+          total_webinars?: number | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "webinar_comparative_analytics_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      webinar_engagement_timeline: {
+        Row: {
+          active_attendees: number | null
+          chat_activity: number | null
+          created_at: string
+          engagement_level: number | null
+          id: string
+          organization_id: string
+          poll_activity: number | null
+          qa_activity: number | null
+          significant_events: Json | null
+          time_interval: number
+          webinar_id: string
+        }
+        Insert: {
+          active_attendees?: number | null
+          chat_activity?: number | null
+          created_at?: string
+          engagement_level?: number | null
+          id?: string
+          organization_id: string
+          poll_activity?: number | null
+          qa_activity?: number | null
+          significant_events?: Json | null
+          time_interval: number
+          webinar_id: string
+        }
+        Update: {
+          active_attendees?: number | null
+          chat_activity?: number | null
+          created_at?: string
+          engagement_level?: number | null
+          id?: string
+          organization_id?: string
+          poll_activity?: number | null
+          qa_activity?: number | null
+          significant_events?: Json | null
+          time_interval?: number
+          webinar_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "webinar_engagement_timeline_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "webinar_engagement_timeline_webinar_id_fkey"
+            columns: ["webinar_id"]
+            isOneToOne: false
             referencedRelation: "webinars"
             referencedColumns: ["id"]
           },
