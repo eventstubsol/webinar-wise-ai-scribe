@@ -1,4 +1,3 @@
-
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
@@ -126,9 +125,10 @@ async function processWebinarChunk(
   supabaseClient: any, 
   organizationId: string, 
   userId: string
-): Promise<{ processed: number, errors: number }> {
+): Promise<{ processed: number, errors: number, webinarRecords: any[] }> {
   let processed = 0
   let errors = 0
+  const webinarRecords: any[] = []
   
   for (const webinar of webinars) {
     try {
@@ -166,10 +166,11 @@ async function processWebinarChunk(
       // Upsert webinar with retry logic
       let upsertSuccess = false
       let retryCount = 0
+      let webinarRecord = null
       
       while (!upsertSuccess && retryCount < 3) {
         try {
-          const { error: upsertError } = await supabaseClient
+          const { data: insertedWebinar, error: upsertError } = await supabaseClient
             .from('webinars')
             .upsert({
               zoom_webinar_id: detailedWebinar.id?.toString(),
@@ -204,10 +205,41 @@ async function processWebinarChunk(
             }, {
               onConflict: 'zoom_webinar_id',
             })
+            .select()
+            .single()
 
-          if (!upsertError) {
+          if (!upsertError && insertedWebinar) {
             upsertSuccess = true
             processed++
+            webinarRecord = insertedWebinar
+            webinarRecords.push(webinarRecord)
+            
+            // Sync polls directly after successful webinar upsert
+            console.log(`=== SYNCING POLLS FOR WEBINAR ${detailedWebinar.id} ===`)
+            try {
+              const pollsSyncResponse = await supabaseClient.functions.invoke('zoom-sync-polls', {
+                body: {
+                  organization_id: organizationId,
+                  user_id: userId,
+                  webinar_id: webinarRecord.id,
+                  zoom_webinar_id: detailedWebinar.id?.toString()
+                }
+              })
+
+              if (pollsSyncResponse.error) {
+                console.error(`❌ Polls sync failed for webinar ${detailedWebinar.id}:`, pollsSyncResponse.error)
+              } else {
+                const pollsResult = pollsSyncResponse.data
+                if (pollsResult?.success) {
+                  console.log(`✅ Polls sync successful for webinar ${detailedWebinar.id}: ${pollsResult.polls_synced || 0} polls synced`)
+                } else {
+                  console.error(`❌ Polls sync failed for webinar ${detailedWebinar.id}:`, pollsResult?.error || 'Unknown error')
+                }
+              }
+            } catch (pollsError) {
+              console.error(`❌ Exception during polls sync for webinar ${detailedWebinar.id}:`, pollsError)
+            }
+            
           } else {
             throw upsertError
           }
@@ -232,18 +264,48 @@ async function processWebinarChunk(
     }
   }
   
-  return { processed, errors }
+  return { processed, errors, webinarRecords }
 }
 
 async function scheduleDetailedSyncChunk(
-  webinarIds: string[], 
+  webinarRecords: any[], 
   supabaseClient: any, 
   organizationId: string, 
   userId: string
 ): Promise<void> {
-  // Schedule background sync for detailed data (participants, polls, etc.)
-  for (const webinarId of webinarIds.slice(0, 3)) { // Limit to 3 webinars for detailed sync
+  // Schedule background sync for detailed data (participants, registrations, qa, chat) 
+  // Note: polls are now synced directly in processWebinarChunk
+  for (const webinarRecord of webinarRecords.slice(0, 3)) { // Limit to 3 webinars for detailed sync
     try {
+      // Determine sync types based on webinar status
+      const baseSync = ['participants', 'registrations', 'qa']
+      let syncTypes = [...baseSync]
+      
+      // Check if webinar is completed and should include chat
+      const isCompleted = webinarRecord.status === 'completed' ||
+                         (webinarRecord.start_time && 
+                          new Date(webinarRecord.start_time) < new Date(Date.now() - 24 * 60 * 60 * 1000))
+
+      if (isCompleted) {
+        syncTypes.push('chat')
+        console.log(`Adding chat sync for completed webinar: ${webinarRecord.zoom_webinar_id}`)
+      }
+
+      const jobMetadata = {
+        webinar_zoom_id: webinarRecord.zoom_webinar_id,
+        webinar_id: webinarRecord.id,
+        organization_id: organizationId,
+        user_id: userId,
+        sync_types: syncTypes,
+        webinar_status: isCompleted ? 'completed' : webinarRecord.status,
+        webinar_title: webinarRecord.title,
+        is_completed: isCompleted,
+        created_by: 'chunked_sync',
+        scheduled_at: new Date().toISOString(),
+        has_chat_sync: syncTypes.includes('chat'),
+        polls_synced_directly: true // Indicate polls were synced directly
+      }
+
       await supabaseClient
         .from('sync_jobs')
         .insert({
@@ -251,14 +313,12 @@ async function scheduleDetailedSyncChunk(
           user_id: userId,
           job_type: 'detailed_webinar_sync',
           status: 'pending',
-          metadata: {
-            webinar_zoom_id: webinarId,
-            sync_types: ['participants', 'registrations', 'polls'],
-            scheduled_at: new Date().toISOString()
-          }
+          metadata: jobMetadata
         })
+        
+      console.log(`✅ Created detailed sync job for webinar ${webinarRecord.zoom_webinar_id} with sync types: ${syncTypes.join(', ')}`)
     } catch (error) {
-      console.error(`Failed to schedule detailed sync for webinar ${webinarId}:`, error)
+      console.error(`Failed to schedule detailed sync for webinar ${webinarRecord.zoom_webinar_id}:`, error)
     }
   }
 }
@@ -284,7 +344,7 @@ serve(async (req) => {
       throw new Error('Organization ID and User ID are required')
     }
 
-    console.log('Starting chunked sync for user:', user_id, 'chunk_token:', chunk_token)
+    console.log('Starting chunked sync with polls integration for user:', user_id, 'chunk_token:', chunk_token)
 
     // Get or create sync job
     let syncJob
@@ -302,7 +362,8 @@ serve(async (req) => {
             started_at: new Date().toISOString(),
             chunked_processing: true,
             total_webinars: 0,
-            processed_webinars: 0
+            processed_webinars: 0,
+            polls_sync_enabled: true
           }
         })
         .select()
@@ -331,16 +392,18 @@ serve(async (req) => {
     const currentPageToken = syncJob?.metadata?.next_page_token
     const { webinars, nextPageToken } = await fetchWebinarsChunk(accessToken, currentPageToken)
     
-    console.log(`Fetched ${webinars.length} webinars for processing`)
+    console.log(`Fetched ${webinars.length} webinars for processing with polls sync`)
 
-    // Process webinars chunk
-    const { processed, errors } = await processWebinarChunk(
+    // Process webinars chunk (now includes polls sync)
+    const { processed, errors, webinarRecords } = await processWebinarChunk(
       webinars.slice(0, config.webinarBatchSize),
       accessToken,
       supabaseClient,
       organization_id,
       user_id
     )
+
+    console.log(`✅ Processed ${processed} webinars with integrated polls sync, ${errors} errors`)
 
     // Update job progress
     const currentProgress = syncJob?.metadata?.processed_webinars || 0
@@ -354,15 +417,14 @@ serve(async (req) => {
       total_webinars: totalFound,
       next_page_token: nextPageToken,
       last_chunk_processed: new Date().toISOString(),
-      chunk_errors: errors
+      chunk_errors: errors,
+      polls_sync_enabled: true
     }
 
-    // Schedule detailed sync for recently processed webinars
-    const recentWebinarIds = webinars.slice(0, config.detailBatchSize).map(w => w.id)
-    if (recentWebinarIds.length > 0) {
-      // Use background task to avoid blocking response
+    // Schedule detailed sync for recently processed webinars (excluding polls since they're already synced)
+    if (webinarRecords.length > 0) {
       const detailedSyncPromise = scheduleDetailedSyncChunk(
-        recentWebinarIds, 
+        webinarRecords, 
         supabaseClient, 
         organization_id, 
         user_id
@@ -390,7 +452,7 @@ serve(async (req) => {
       .eq('id', syncJob.id)
 
     const processingTime = Date.now() - startTime
-    console.log(`Chunk completed in ${processingTime}ms: processed=${processed}, errors=${errors}`)
+    console.log(`✅ Chunk completed in ${processingTime}ms: processed=${processed}, errors=${errors}, polls_sync=integrated`)
 
     // Return response with next chunk info
     return new Response(
@@ -406,11 +468,13 @@ serve(async (req) => {
         has_next_chunk: !isComplete,
         next_chunk_token: isComplete ? null : syncJob.id,
         processing_time_ms: processingTime,
+        polls_sync_integrated: true,
         summary: {
           webinars_in_chunk: webinars.length,
           webinars_processed: processed,
-          detailed_sync_scheduled: recentWebinarIds.length,
-          is_final_chunk: isComplete
+          detailed_sync_scheduled: webinarRecords.length,
+          is_final_chunk: isComplete,
+          polls_synced_directly: true
         }
       }),
       {
