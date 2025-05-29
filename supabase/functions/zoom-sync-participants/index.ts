@@ -150,6 +150,73 @@ async function fetchParticipantsWithRetry(url: string, accessToken: string, maxR
   }
 }
 
+// Fixed engagement score calculation that respects database constraints
+function calculateEngagementScore(participant: ZoomParticipant, maxDuration: number): number {
+  let engagementScore = 0
+  
+  if (maxDuration > 0 && participant.duration) {
+    // Base score from duration (0-7 points to leave room for bonuses)
+    const durationRatio = Math.min(1, participant.duration / maxDuration)
+    engagementScore += durationRatio * 7
+    
+    // Bonus for attentiveness score (0-2 points)
+    if (participant.attentiveness_score) {
+      const attentiveness = parseFloat(participant.attentiveness_score)
+      if (!isNaN(attentiveness)) {
+        engagementScore += Math.min(2, (attentiveness / 100) * 2)
+      }
+    }
+  }
+  
+  // Ensure the score never exceeds 9.99 (database constraint is numeric(3,2))
+  const finalScore = Math.min(9.99, Math.max(0, engagementScore))
+  
+  console.log(`📊 Engagement calculation for ${participant.name}: duration=${participant.duration}s, max=${maxDuration}s, attentiveness=${participant.attentiveness_score}, final=${finalScore}`)
+  
+  return Math.round(finalScore * 100) / 100 // Round to 2 decimal places
+}
+
+// Improved bot detection with more reasonable thresholds
+function isLikelyBot(participant: ZoomParticipant): boolean {
+  const name = participant.name || ''
+  const email = participant.user_email || ''
+  
+  // Check for obvious bot indicators in name
+  const botNameIndicators = [
+    'bot', 'test', 'zoom', 'recording', 'admin', 'system',
+    'automated', 'service', 'api', 'webhook', 'integration'
+  ]
+  
+  const nameHasBotIndicator = botNameIndicators.some(indicator => 
+    name.toLowerCase().includes(indicator)
+  )
+  
+  // Check for test/bot email patterns
+  const botEmailIndicators = [
+    'test@', 'bot@', 'noreply@', 'system@', 'admin@',
+    'donotreply@', 'automated@', 'service@'
+  ]
+  
+  const emailHasBotIndicator = botEmailIndicators.some(indicator =>
+    email.toLowerCase().includes(indicator)
+  )
+  
+  // Very short duration (less than 10 seconds) combined with bot indicators
+  const veryShortDuration = (participant.duration || 0) < 10
+  const hasLowDuration = (participant.duration || 0) < 5 // Only filter out extremely short sessions
+  
+  // More sophisticated bot detection
+  const isBot = (nameHasBotIndicator || emailHasBotIndicator) || 
+                (hasLowDuration && (nameHasBotIndicator || emailHasBotIndicator)) ||
+                (veryShortDuration && name.toLowerCase() === 'zoom')
+  
+  if (isBot) {
+    console.log(`🤖 Detected bot: ${name} (${email}) - duration: ${participant.duration}s`)
+  }
+  
+  return isBot
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -167,7 +234,7 @@ serve(async (req) => {
       throw new Error('Organization ID, User ID, and Zoom webinar ID are required')
     }
 
-    console.log('🚀 Starting enhanced participant sync for webinar:', zoom_webinar_id)
+    console.log('🚀 Starting enhanced participant sync with improved error handling for webinar:', zoom_webinar_id)
 
     // Get access token
     const accessToken = await getZoomAccessToken(user_id, supabaseClient)
@@ -302,9 +369,15 @@ serve(async (req) => {
     const deduplicatedParticipants = Array.from(participantMap.values())
     console.log(`🔄 After deduplication: ${deduplicatedParticipants.length} unique participants (${duplicatesFound} duplicates merged)`)
 
-    // Enhanced participant storage with the new unique constraint
+    // Calculate max duration for engagement scoring
+    const maxDuration = Math.max(...deduplicatedParticipants.map(p => p.duration || 0))
+    console.log(`📏 Max webinar duration: ${maxDuration} seconds`)
+
+    // Enhanced participant storage with improved validation and error handling
     let processedCount = 0
     let errorCount = 0
+    let validationErrors = 0
+    let botFilteredCount = 0
     const processingErrors: string[] = []
     
     for (const participant of deduplicatedParticipants) {
@@ -313,41 +386,50 @@ serve(async (req) => {
         const cleanEmail = participant.user_email?.toLowerCase().trim() || ''
         const isValidEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)
         
-        // Enhanced bot detection
-        const name = participant.name || ''
-        const isLikelyBot = 
-          name.toLowerCase().includes('bot') ||
-          name.toLowerCase().includes('test') ||
-          name.toLowerCase().includes('zoom') ||
-          name.toLowerCase().includes('recording') ||
-          participant.duration < 30 // Less than 30 seconds
+        // Improved bot detection
+        const isBot = isLikelyBot(participant)
         
-        // Enhanced engagement score calculation
-        const maxDuration = Math.max(...deduplicatedParticipants.map(p => p.duration || 0))
-        let engagementScore = 0
-        
-        if (maxDuration > 0) {
-          const durationScore = Math.min(10, ((participant.duration || 0) / maxDuration) * 10)
-          const attentivenessBonus = participant.attentiveness_score ? parseFloat(participant.attentiveness_score) / 10 : 0
-          engagementScore = Math.min(10, durationScore + attentivenessBonus)
+        if (isBot) {
+          botFilteredCount++
+          console.log(`⏭️ Filtered out bot: ${participant.name} (${cleanEmail}) - duration: ${participant.duration}s`)
+          continue
         }
 
-        if (isValidEmail && !isLikelyBot && cleanEmail !== '') {
-          // Now using the proper unique constraint on (webinar_id, email)
+        // Calculate engagement score with proper constraints
+        const engagementScore = calculateEngagementScore(participant, maxDuration)
+        
+        // Validate engagement score before insertion
+        if (engagementScore > 9.99 || engagementScore < 0) {
+          console.error(`❌ Invalid engagement score: ${engagementScore} for ${participant.name}`)
+          validationErrors++
+          continue
+        }
+
+        if (isValidEmail && cleanEmail !== '') {
+          // Enhanced data validation before insertion
+          const attendeeData = {
+            webinar_id,
+            organization_id,
+            zoom_user_id: participant.user_id || participant.id,
+            name: participant.name || 'Unknown Attendee',
+            email: cleanEmail,
+            join_time: participant.join_time,
+            leave_time: participant.leave_time,
+            duration_minutes: Math.round((participant.duration || 0) / 60),
+            engagement_score: engagementScore,
+            updated_at: new Date().toISOString(),
+          }
+          
+          // Validate all required fields
+          if (!attendeeData.name || !attendeeData.email || !attendeeData.webinar_id) {
+            console.error(`❌ Missing required fields for participant: ${JSON.stringify(attendeeData)}`)
+            validationErrors++
+            continue
+          }
+
           const { error: upsertError } = await supabaseClient
             .from('attendees')
-            .upsert({
-              webinar_id,
-              organization_id,
-              zoom_user_id: participant.user_id || participant.id,
-              name: participant.name || 'Unknown Attendee',
-              email: cleanEmail,
-              join_time: participant.join_time,
-              leave_time: participant.leave_time,
-              duration_minutes: Math.round((participant.duration || 0) / 60),
-              engagement_score: Math.round(engagementScore * 10) / 10,
-              updated_at: new Date().toISOString(),
-            }, {
+            .upsert(attendeeData, {
               onConflict: 'webinar_id,email',
               ignoreDuplicates: false,
             })
@@ -359,11 +441,12 @@ serve(async (req) => {
             }
           } else {
             console.error('❌ Error upserting participant:', upsertError)
+            console.error('❌ Failed participant data:', JSON.stringify(attendeeData))
             errorCount++
             processingErrors.push(`${participant.name} (${cleanEmail}): ${upsertError.message}`)
           }
         } else {
-          console.log(`⏭️ Filtered out: ${participant.name} (${cleanEmail}) - Valid email: ${isValidEmail}, Bot: ${isLikelyBot}`)
+          console.log(`⏭️ Filtered out invalid email: ${participant.name} (${cleanEmail})`)
         }
         
       } catch (error) {
@@ -373,7 +456,14 @@ serve(async (req) => {
       }
     }
 
-    console.log(`🎉 Participant sync completed: ${processedCount} stored successfully, ${errorCount} errors`)
+    console.log(`🎉 Participant sync completed with enhanced error handling!`)
+    console.log(`📊 Results summary:`)
+    console.log(`  - Total found: ${allParticipants.length}`)
+    console.log(`  - After deduplication: ${deduplicatedParticipants.length}`)
+    console.log(`  - Successfully stored: ${processedCount}`)
+    console.log(`  - Bot filtered: ${botFilteredCount}`)
+    console.log(`  - Validation errors: ${validationErrors}`)
+    console.log(`  - Database errors: ${errorCount}`)
 
     // Update webinar attendee count
     if (webinar_id && processedCount > 0) {
@@ -394,7 +484,8 @@ serve(async (req) => {
 
     // Update sync log with comprehensive results
     const syncStatus = processedCount > 0 ? 'completed' : (errorCount > 0 ? 'failed' : 'completed')
-    const errorMessage = errorCount > 0 ? `${errorCount} participants had processing issues. Successfully stored: ${processedCount}. First few errors: ${processingErrors.slice(0, 3).join('; ')}` : null
+    const errorMessage = (errorCount > 0 || validationErrors > 0) ? 
+      `${errorCount} database errors, ${validationErrors} validation errors, ${botFilteredCount} bots filtered. Successfully stored: ${processedCount}.` : null
     
     await supabaseClient
       .from('sync_logs')
@@ -413,9 +504,14 @@ serve(async (req) => {
         total_found: allParticipants.length,
         after_deduplication: deduplicatedParticipants.length,
         errors: errorCount,
+        validation_errors: validationErrors,
+        bots_filtered: botFilteredCount,
         api_used: apiUsed,
-        error_summary: errorCount > 0 ? `${errorCount} processing errors occurred` : null,
-        message: processedCount > 0 ? `Successfully stored ${processedCount} attendees` : `No attendees stored - check filtering criteria`
+        error_summary: (errorCount > 0 || validationErrors > 0) ? 
+          `${errorCount} database errors, ${validationErrors} validation errors occurred` : null,
+        message: processedCount > 0 ? 
+          `Successfully stored ${processedCount} attendees (${botFilteredCount} bots filtered, ${validationErrors + errorCount} errors)` : 
+          `No attendees stored - check filtering criteria and error logs`
       }),
       {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },

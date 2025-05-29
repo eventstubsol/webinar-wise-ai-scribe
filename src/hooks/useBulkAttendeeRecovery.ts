@@ -43,7 +43,7 @@ export const useBulkAttendeeRecovery = () => {
       setRecoveryResults([]);
       setRecoveryLogs([]);
 
-      addLog('🚀 Starting bulk attendee recovery with fixed database constraints...');
+      addLog('🚀 Starting enhanced bulk attendee recovery with improved error handling...');
 
       // Step 1: Clear any stuck jobs
       try {
@@ -73,6 +73,8 @@ export const useBulkAttendeeRecovery = () => {
       const results: WebinarAttendeeResult[] = [];
       let totalAttendees = 0;
       let totalErrors = 0;
+      let totalBotsFiltered = 0;
+      let totalValidationErrors = 0;
 
       for (let i = 0; i < webinars.length; i += batchSize) {
         const batch = webinars.slice(i, i + batchSize);
@@ -89,7 +91,7 @@ export const useBulkAttendeeRecovery = () => {
         const batchResults = await Promise.all(batchPromises);
         results.push(...batchResults);
 
-        // Update progress
+        // Update progress with enhanced metrics
         const processed = i + batch.length;
         const batchAttendees = batchResults.reduce((sum, r) => sum + r.attendees_stored, 0);
         const batchErrors = batchResults.reduce((sum, r) => sum + r.errors, 0);
@@ -108,16 +110,19 @@ export const useBulkAttendeeRecovery = () => {
 
         setRecoveryResults([...results]);
 
-        // Log results for each webinar
+        // Enhanced logging for each webinar result
         batchResults.forEach(result => {
           if (result.attendees_stored > 0) {
-            addLog(`✅ Success: ${result.title} - Stored ${result.attendees_stored} attendees`);
+            const errorMsg = result.errors > 0 ? ` (${result.errors} errors)` : '';
+            addLog(`✅ Success: ${result.title} - Stored ${result.attendees_stored} attendees${errorMsg}`);
+          } else if (result.success) {
+            addLog(`ℹ️ Empty result: ${result.title} - ${result.error_message || 'No attendees found'}`);
           } else {
-            addLog(`⚠️ No data: ${result.title} - Found ${result.attendees_found} but stored ${result.attendees_stored}`);
+            addLog(`❌ Failed: ${result.title} - ${result.error_message || 'Unknown error'}`);
           }
         });
 
-        addLog(`📊 Batch ${batchNum} complete: +${batchAttendees} attendees, ${batchErrors} errors`);
+        addLog(`📊 Batch ${batchNum} complete: +${batchAttendees} attendees, ${batchErrors} total errors`);
 
         // Short delay between batches
         if (i + batchSize < webinars.length) {
@@ -126,21 +131,26 @@ export const useBulkAttendeeRecovery = () => {
         }
       }
 
-      // Final summary
+      // Enhanced final summary with detailed statistics
       const successfulWebinars = results.filter(r => r.success && r.attendees_stored > 0).length;
-      const failedWebinars = results.filter(r => !r.success || r.attendees_stored === 0).length;
+      const partialSuccessWebinars = results.filter(r => r.success && r.attendees_stored === 0).length;
+      const failedWebinars = results.filter(r => !r.success).length;
       const totalFound = results.reduce((sum, r) => sum + r.attendees_found, 0);
+      const webinarsWithErrors = results.filter(r => r.errors > 0).length;
 
-      addLog(`\n🎉 Bulk attendee recovery completed!`);
-      addLog(`📈 Final Results:`);
+      addLog(`\n🎉 Enhanced bulk attendee recovery completed!`);
+      addLog(`📈 Detailed Results:`);
       addLog(`  • Webinars processed: ${webinars.length}`);
-      addLog(`  • Successful recoveries: ${successfulWebinars}`);
-      addLog(`  • Failed/empty recoveries: ${failedWebinars}`);
+      addLog(`  • Successful with data: ${successfulWebinars}`);
+      addLog(`  • Successful but empty: ${partialSuccessWebinars}`);
+      addLog(`  • Failed completely: ${failedWebinars}`);
+      addLog(`  • Had errors/warnings: ${webinarsWithErrors}`);
       addLog(`  • Total attendees found: ${totalFound}`);
       addLog(`  • Total attendees stored: ${totalAttendees}`);
+      addLog(`  • Total errors: ${totalErrors}`);
 
       const message = totalAttendees > 0 
-        ? `Successfully recovered ${totalAttendees} attendees from ${successfulWebinars} webinars!`
+        ? `Successfully recovered ${totalAttendees} attendees from ${successfulWebinars} webinars! ${totalErrors > 0 ? `(${totalErrors} errors handled)` : ''}`
         : `Recovery completed but no attendees were stored. Check individual webinar results for details.`;
 
       toast({

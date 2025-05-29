@@ -87,16 +87,24 @@ export const recoverWebinarAttendees = async (
     }
 
     const result = data as any;
+    
+    // Enhanced result processing with new error types
+    const totalErrors = (result.errors || 0) + (result.validation_errors || 0);
+    const successMessage = result.message || 
+      `${result.participants_synced || 0} stored, ${result.bots_filtered || 0} bots filtered`;
+    
     return {
       webinar_id: webinar.id,
       zoom_webinar_id: webinar.zoom_webinar_id,
       title: webinar.title,
       attendees_found: result.total_found || 0,
       attendees_stored: result.participants_synced || 0,
-      errors: result.errors || 0,
+      errors: totalErrors,
       success: result.success || false,
       api_used: result.api_used,
-      error_message: result.error_summary
+      error_message: result.success ? 
+        (totalErrors > 0 ? `${successMessage} (${totalErrors} errors)` : successMessage) :
+        (result.error_summary || result.error || 'Unknown error')
     };
   } catch (error: any) {
     return {
