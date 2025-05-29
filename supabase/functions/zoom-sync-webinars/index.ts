@@ -44,6 +44,8 @@ serve(async (req) => {
     let processedCount = 0
     let errorCount = 0
     let qualityFixesApplied = 0
+    let pollsSyncSuccessCount = 0
+    let pollsSyncErrorCount = 0
     
     for (const zoomWebinar of allWebinars) {
       try {
@@ -75,8 +77,38 @@ serve(async (req) => {
             accessToken
           )
 
+          // Enhanced polls sync - Call polls sync function directly for each webinar
+          console.log(`Attempting polls sync for webinar ${detailData.id}...`)
+          try {
+            const pollsSyncResponse = await supabaseClient.functions.invoke('zoom-sync-polls', {
+              body: {
+                organization_id,
+                user_id,
+                webinar_id: result.webinarRecord.id,
+                zoom_webinar_id: detailData.id?.toString()
+              }
+            })
+
+            if (pollsSyncResponse.error) {
+              console.error(`Polls sync failed for webinar ${detailData.id}:`, pollsSyncResponse.error)
+              pollsSyncErrorCount++
+            } else {
+              const pollsResult = pollsSyncResponse.data
+              if (pollsResult?.success) {
+                console.log(`✓ Polls sync successful for webinar ${detailData.id}: ${pollsResult.polls_synced} polls`)
+                pollsSyncSuccessCount++
+              } else {
+                console.error(`Polls sync failed for webinar ${detailData.id}:`, pollsResult?.error || 'Unknown error')
+                pollsSyncErrorCount++
+              }
+            }
+          } catch (pollsError) {
+            console.error(`Exception during polls sync for webinar ${detailData.id}:`, pollsError)
+            pollsSyncErrorCount++
+          }
+
           // Determine sync types based on webinar status
-          const baseSync = ['participants', 'registrations', 'polls', 'qa']
+          const baseSync = ['participants', 'registrations', 'qa']
           let syncTypes = [...baseSync]
           
           // Check if webinar is completed and should include chat
@@ -100,19 +132,20 @@ serve(async (req) => {
             }
           }
 
-          // Create job with COMPLETE metadata structure
+          // Create job with COMPLETE metadata structure (excluding polls since we sync them directly)
           const jobMetadata = {
             webinar_zoom_id: detailData.id?.toString(),
-            webinar_id: result.webinarRecord.id, // CRITICAL: Include webinar_id
-            organization_id, // Include for redundancy
-            user_id, // Include for redundancy
+            webinar_id: result.webinarRecord.id,
+            organization_id,
+            user_id,
             sync_types: syncTypes,
             webinar_status: isCompleted ? 'completed' : result.webinarRecord.status,
             webinar_title: result.webinarRecord.title,
             is_completed: isCompleted,
             created_by: 'enhanced_webinar_sync',
             scheduled_at: new Date().toISOString(),
-            has_chat_sync: syncTypes.includes('chat')
+            has_chat_sync: syncTypes.includes('chat'),
+            polls_synced_directly: true // Indicate polls were synced directly
           }
 
           console.log(`Creating job for webinar ${detailData.id} with metadata:`, jobMetadata)
@@ -147,6 +180,7 @@ serve(async (req) => {
     }
 
     console.log(`Enhanced webinar sync completed: ${processedCount} processed, ${qualityFixesApplied} with quality fixes, ${errorCount} errors`)
+    console.log(`Polls sync: ${pollsSyncSuccessCount} successful, ${pollsSyncErrorCount} failed`)
 
     // Update sync log
     if (syncLog?.id) {
@@ -162,7 +196,9 @@ serve(async (req) => {
         errors: errorCount,
         comprehensive_data: true,
         detailed_jobs_created: processedCount,
-        jobs_with_chat_sync: allWebinars.filter((_, i) => i < processedCount).length
+        jobs_with_chat_sync: allWebinars.filter((_, i) => i < processedCount).length,
+        polls_sync_successful: pollsSyncSuccessCount,
+        polls_sync_failed: pollsSyncErrorCount
       }),
       {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },

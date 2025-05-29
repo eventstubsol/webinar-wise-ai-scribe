@@ -122,9 +122,14 @@ serve(async (req) => {
       throw new Error('Organization ID, User ID, and Zoom webinar ID are required')
     }
 
-    console.log('Starting polls sync for webinar:', zoom_webinar_id)
+    console.log('=== POLLS SYNC START ===')
+    console.log('Webinar ID:', zoom_webinar_id)
+    console.log('DB Webinar ID:', webinar_id)
+    console.log('Organization ID:', organization_id)
+    console.log('User ID:', user_id)
 
     const accessToken = await getZoomAccessToken(user_id, supabaseClient)
+    console.log('✓ Access token obtained successfully')
 
     // Log sync start
     const { data: syncLog } = await supabaseClient
@@ -139,8 +144,10 @@ serve(async (req) => {
       .select()
       .single()
 
-    // First, fetch polls from the correct endpoint
-    console.log(`Fetching polls for webinar ${zoom_webinar_id}...`)
+    console.log('✓ Sync log created:', syncLog?.id)
+
+    // Step 1: Fetch polls configuration from Zoom
+    console.log('=== STEP 1: Fetching polls configuration ===')
     const pollsResponse = await fetch(`https://api.zoom.us/v2/webinars/${zoom_webinar_id}/polls`, {
       headers: {
         'Authorization': `Bearer ${accessToken}`,
@@ -149,80 +156,103 @@ serve(async (req) => {
     })
 
     let allPolls: ZoomPoll[] = []
-    let pollResults: ZoomPollResult[] = []
     let pollFetchError = null
 
     if (pollsResponse.ok) {
       const pollsData = await pollsResponse.json()
       allPolls = pollsData.polls || []
-      console.log(`Found ${allPolls.length} polls for webinar ${zoom_webinar_id}`)
+      console.log(`✓ Found ${allPolls.length} polls configuration`)
       
-      // Try to fetch poll results using the correct endpoint
       if (allPolls.length > 0) {
-        console.log('Attempting to fetch poll results...')
-        
-        // Try the report endpoint for poll results
-        try {
-          const resultsResponse = await fetch(`https://api.zoom.us/v2/report/webinars/${zoom_webinar_id}/polls`, {
-            headers: {
-              'Authorization': `Bearer ${accessToken}`,
-            },
-          })
-
-          if (resultsResponse.ok) {
-            const resultData = await resultsResponse.json()
-            console.log('Poll results response:', JSON.stringify(resultData, null, 2))
-            
-            // The results might be in different format, let's handle it flexibly
-            if (resultData.polls) {
-              pollResults = resultData.polls
-            } else if (resultData.questions) {
-              // Transform the data if it's in a different format
-              pollResults = [{
-                id: zoom_webinar_id,
-                uuid: zoom_webinar_id,
-                start_time: '',
-                title: 'Poll Results',
-                questions: resultData.questions
-              }]
-            }
-            console.log(`Successfully fetched poll results: ${pollResults.length} result sets`)
-          } else {
-            const errorData = await resultsResponse.json()
-            console.log(`Poll results fetch failed with status ${resultsResponse.status}:`, errorData)
-          }
-        } catch (error) {
-          console.error('Error fetching poll results:', error.message)
-        }
+        console.log('Poll details:', allPolls.map(p => ({ id: p.id, title: p.title, questions: p.questions?.length || 0 })))
       }
     } else {
       const errorData = await pollsResponse.json()
-      pollFetchError = `API Error ${pollsResponse.status}: ${errorData.message || 'Unknown error'}`
-      console.error('Failed to fetch polls:', pollFetchError)
+      pollFetchError = `Polls API Error ${pollsResponse.status}: ${errorData.message || errorData.error_description || 'Unknown error'}`
+      console.error('❌ Polls fetch failed:', pollFetchError)
+      console.error('Error details:', errorData)
     }
 
-    console.log(`Processing ${allPolls.length} polls with ${pollResults.length} result sets`)
+    // Step 2: Fetch poll results from Zoom reports
+    let pollResults: ZoomPollResult[] = []
+    console.log('=== STEP 2: Fetching poll results ===')
+    
+    if (allPolls.length > 0) {
+      try {
+        const resultsResponse = await fetch(`https://api.zoom.us/v2/report/webinars/${zoom_webinar_id}/polls`, {
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+          },
+        })
 
-    // Store polls and results
+        if (resultsResponse.ok) {
+          const resultData = await resultsResponse.json()
+          console.log('✓ Poll results response received')
+          console.log('Results structure:', {
+            has_polls: !!resultData.polls,
+            has_questions: !!resultData.questions,
+            polls_count: resultData.polls?.length || 0,
+            questions_count: resultData.questions?.length || 0
+          })
+          
+          if (resultData.polls) {
+            pollResults = resultData.polls
+          } else if (resultData.questions) {
+            // Transform individual questions into poll result format
+            pollResults = [{
+              id: zoom_webinar_id,
+              uuid: zoom_webinar_id,
+              start_time: '',
+              title: 'Poll Results',
+              questions: resultData.questions
+            }]
+          }
+          
+          console.log(`✓ Processed ${pollResults.length} poll result sets`)
+        } else {
+          const errorData = await resultsResponse.json()
+          console.log(`⚠️ Poll results fetch failed with status ${resultsResponse.status}:`, errorData)
+        }
+      } catch (error) {
+        console.error('⚠️ Exception fetching poll results:', error.message)
+      }
+    } else {
+      console.log('⚠️ No polls found, skipping results fetch')
+    }
+
+    // Step 3: Process and store polls data
+    console.log('=== STEP 3: Processing and storing polls ===')
     let processedCount = 0
     let errorCount = 0
     
+    if (allPolls.length === 0) {
+      console.log('ℹ️ No polls to process for this webinar')
+    }
+    
     for (const poll of allPolls) {
       try {
-        console.log(`Processing poll: ${poll.id} - ${poll.title}`)
+        console.log(`Processing poll: ${poll.id} - "${poll.title}"`)
         
         // Find corresponding results
-        const results = pollResults.find(r => r.id === poll.id) || pollResults[0] // Fallback to first result if available
+        const results = pollResults.find(r => r.id === poll.id) || pollResults[0]
         
-        // Prepare the poll data for insertion
+        // Extract question data - polls can have multiple questions
+        const primaryQuestion = poll.questions?.[0]
+        if (!primaryQuestion) {
+          console.error(`❌ No questions found for poll ${poll.id}`)
+          errorCount++
+          continue
+        }
+
+        // Prepare poll data for database insertion
         const pollData = {
-          webinar_id,
+          webinar_id: webinar_id || null, // Use the database webinar ID
           organization_id,
           zoom_poll_id: poll.id,
           title: poll.title || 'Untitled Poll',
           poll_type: poll.poll_type || 'single',
-          question: poll.questions?.[0]?.name || poll.title || 'No question available',
-          options: poll.questions?.[0]?.answers || [],
+          question: primaryQuestion.name || poll.title || 'No question available',
+          options: primaryQuestion.answers || [],
           results: results?.questions || [],
           total_responses: 0,
           created_at: new Date().toISOString(),
@@ -230,16 +260,23 @@ serve(async (req) => {
 
         // Calculate total responses if results are available
         if (results?.questions?.[0]?.answers) {
-          pollData.total_responses = results.questions[0].answers.reduce((sum: number, ans: any) => sum + (ans.count || 0), 0)
+          const answerCounts = results.questions[0].answers
+          pollData.total_responses = answerCounts.reduce((sum: number, ans: any) => {
+            const count = parseInt(ans.count) || 0
+            return sum + count
+          }, 0)
         }
 
         console.log(`Inserting poll data:`, {
           zoom_poll_id: pollData.zoom_poll_id,
           title: pollData.title,
+          question: pollData.question.substring(0, 50) + '...',
+          options_count: pollData.options.length,
           total_responses: pollData.total_responses,
           has_results: pollData.results.length > 0
         })
 
+        // Insert/update poll data
         const { error: upsertError } = await supabaseClient
           .from('zoom_polls')
           .upsert(pollData, {
@@ -250,17 +287,21 @@ serve(async (req) => {
           processedCount++
           console.log(`✓ Successfully processed poll: ${poll.id}`)
         } else {
-          console.error('Database upsert error for poll:', poll.id, upsertError)
+          console.error('❌ Database upsert error for poll:', poll.id, upsertError)
           errorCount++
         }
         
       } catch (error) {
-        console.error(`Error processing poll ${poll.id}:`, error.message)
+        console.error(`❌ Error processing poll ${poll.id}:`, error.message)
         errorCount++
       }
     }
 
-    console.log(`Polls sync completed: ${processedCount} processed, ${errorCount} errors`)
+    console.log('=== POLLS SYNC SUMMARY ===')
+    console.log(`Total polls found: ${allPolls.length}`)
+    console.log(`Successfully processed: ${processedCount}`)
+    console.log(`Errors: ${errorCount}`)
+    console.log(`Poll results available: ${pollResults.length > 0}`)
 
     // Update sync log
     const syncStatus = errorCount > 0 && processedCount === 0 ? 'failed' : 'completed'
@@ -272,15 +313,19 @@ serve(async (req) => {
       errorMessage = `${errorCount} polls failed to process`
     }
     
-    await supabaseClient
-      .from('sync_logs')
-      .update({
-        status: syncStatus,
-        records_processed: processedCount,
-        error_message: errorMessage,
-        completed_at: new Date().toISOString(),
-      })
-      .eq('id', syncLog?.id)
+    if (syncLog?.id) {
+      await supabaseClient
+        .from('sync_logs')
+        .update({
+          status: syncStatus,
+          records_processed: processedCount,
+          error_message: errorMessage,
+          completed_at: new Date().toISOString(),
+        })
+        .eq('id', syncLog.id)
+    }
+
+    console.log('=== POLLS SYNC COMPLETE ===')
 
     return new Response(
       JSON.stringify({ 
@@ -289,7 +334,13 @@ serve(async (req) => {
         total_found: allPolls.length,
         errors: errorCount,
         has_results: pollResults.length > 0,
-        api_error: pollFetchError
+        api_error: pollFetchError,
+        summary: {
+          polls_found: allPolls.length,
+          polls_processed: processedCount,
+          polls_with_results: pollResults.length,
+          error_details: errorMessage
+        }
       }),
       {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -297,7 +348,8 @@ serve(async (req) => {
     )
 
   } catch (error) {
-    console.error('Polls sync error:', error)
+    console.error('=== POLLS SYNC ERROR ===')
+    console.error('Error:', error)
     
     return new Response(
       JSON.stringify({ 

@@ -1,4 +1,3 @@
-
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -8,6 +7,7 @@ import { RefreshCw, Link2, Unlink, Clock, CheckCircle, XCircle, AlertCircle, Dat
 import { useZoomIntegration } from "@/hooks/useZoomIntegration";
 import { useAuth } from "@/hooks/useAuth";
 import ZoomConnectionWizard from "./ZoomConnectionWizard";
+import PollsDebugger from "./PollsDebugger";
 import { useState } from "react";
 
 const ZoomIntegration = () => {
@@ -233,6 +233,11 @@ const ZoomIntegration = () => {
             )}
           </CardContent>
         </Card>
+
+        {/* Add Polls Debugger for enhanced debugging */}
+        {isConnected && (
+          <PollsDebugger />
+        )}
 
         {/* Enhanced Sync Jobs Display */}
         {syncJobs && syncJobs.length > 0 && (
