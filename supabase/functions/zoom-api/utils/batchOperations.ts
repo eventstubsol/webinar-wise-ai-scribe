@@ -86,39 +86,58 @@ export async function storeParticipantsInBatches(
       }
     }
     
-    // Process attendees in batches - store in BOTH tables using UPSERT with better error handling
+    // Process attendees in batches - store in BOTH tables with improved field mapping
     if (attendees.length > 0) {
       console.log(`[batchOperations] Storing ${attendees.length} attendees in batches of ${BATCH_SIZE}`);
+      
+      // Log sample attendee data to understand structure
+      if (attendees[0]) {
+        console.log(`[batchOperations] Sample attendee data structure:`, JSON.stringify(attendees[0], null, 2));
+      }
       
       for (let i = 0; i < attendees.length; i += BATCH_SIZE) {
         const batch = attendees.slice(i, i + BATCH_SIZE);
         
         // Store in zoom_webinar_instance_participants (existing logic)
-        const participantsToInsert = batch.map((attendee: any, index: number) => ({
-          user_id: userId,
-          instance_id: instanceId,
-          webinar_id: webinarId,
-          participant_type: 'attendee',
-          participant_id: attendee.id || attendee.user_id || `att_${instanceId}_${i + index}`,
-          email: attendee.user_email || attendee.email || '',
-          name: attendee.name || attendee.user_name || 'Unknown',
-          join_time: attendee.join_time || new Date().toISOString(),
-          leave_time: attendee.leave_time,
-          duration: attendee.duration || 0,
-          raw_data: attendee
-        }));
+        const participantsToInsert = batch.map((attendee: any, index: number) => {
+          // Extract zoom user ID with improved field mapping
+          let participantId = attendee.id || attendee.user_id || attendee.registrant_id || attendee.participant_user_id;
+          if (!participantId) {
+            participantId = `att_${instanceId}_${i + index}_${Date.now()}`;
+            console.log(`[batchOperations] Generated participant_id: ${participantId} for attendee ${attendee.name || attendee.user_name || 'Unknown'}`);
+          }
+          
+          return {
+            user_id: userId,
+            instance_id: instanceId,
+            webinar_id: webinarId,
+            participant_type: 'attendee',
+            participant_id: participantId,
+            email: attendee.user_email || attendee.email || '',
+            name: attendee.name || attendee.user_name || 'Unknown',
+            join_time: attendee.join_time || new Date().toISOString(),
+            leave_time: attendee.leave_time,
+            duration: attendee.duration || 0,
+            raw_data: attendee
+          };
+        });
         
-        // Store in attendees table using UPSERT with improved handling for null values
+        // Store in attendees table using UPSERT with improved handling
         const attendeesToUpsert = batch.map((attendee: any, index: number) => {
           const duration = attendee.duration || 0;
           const engagementScore = Math.min(10, Math.max(0, duration / 60)); // Simple engagement based on duration
-          let zoomUserId = attendee.id || attendee.user_id;
+          
+          // Extract zoom user ID with comprehensive field mapping
+          let zoomUserId = attendee.id || attendee.user_id || attendee.registrant_id || attendee.participant_user_id;
           
           // Handle cases where zoom_user_id might be null or empty
           if (!zoomUserId || zoomUserId === '') {
-            zoomUserId = `att_${instanceId}_${i + index}_${Date.now()}`;
-            console.log(`[batchOperations] Generated fallback zoom_user_id: ${zoomUserId} for attendee ${attendee.name || 'Unknown'}`);
+            // Use a combination of instance and index for deterministic fallback
+            zoomUserId = `fallback_${instanceId}_${i + index}`;
+            console.log(`[batchOperations] Generated fallback zoom_user_id: ${zoomUserId} for attendee ${attendee.name || attendee.user_name || 'Unknown'}`);
           }
+          
+          console.log(`[batchOperations] Processing attendee: name=${attendee.name || attendee.user_name}, email=${attendee.user_email || attendee.email}, zoom_user_id=${zoomUserId}, duration=${duration}`);
           
           return {
             organization_id: organizationId,
@@ -144,11 +163,11 @@ export async function storeParticipantsInBatches(
           .from('zoom_webinar_instance_participants')
           .insert(participantsToInsert);
         
-        // UPSERT into attendees table with the new unique constraint
+        // UPSERT into attendees table with the unique constraint
         const attendeesResult = await supabase
           .from('attendees')
           .upsert(attendeesToUpsert, {
-            onConflict: 'unique_attendee_per_webinar',
+            onConflict: 'organization_id,webinar_id,zoom_user_id',
             ignoreDuplicates: false
           });
         
@@ -159,7 +178,8 @@ export async function storeParticipantsInBatches(
         if (attendeesResult.error) {
           console.error(`[batchOperations] Error upserting attendees batch ${i}-${i + batch.length}:`, attendeesResult.error);
           console.error(`[batchOperations] Attendees error details:`, JSON.stringify(attendeesResult.error, null, 2));
-          // Continue processing even if some attendees fail
+          // Log the problematic data for debugging
+          console.error(`[batchOperations] Problematic attendee data:`, JSON.stringify(attendeesToUpsert.slice(0, 3), null, 2));
         } else {
           console.log(`[batchOperations] Successfully upserted attendees batch ${i + 1}-${i + batch.length}`);
         }
