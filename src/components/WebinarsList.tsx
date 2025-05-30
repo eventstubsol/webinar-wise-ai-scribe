@@ -1,3 +1,4 @@
+
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -39,8 +40,13 @@ const WebinarsList = ({ filters }: WebinarsListProps) => {
     return true;
   });
 
-  // Check if any webinar has 0 attendees/registrants but might have data
-  const hasZeroCounts = webinars.some(w => w.attendees_count === 0 && w.registrants_count === 0);
+  // Improved logic: Only show warning for completed webinars that have registrants but 0 attendees
+  // This indicates they likely had attendees but the data wasn't synced properly
+  const hasLikelyMissingAttendeeData = webinars.some(w => 
+    w.status === 'completed' && 
+    w.registrants_count > 0 && 
+    w.attendees_count === 0
+  );
 
   const getStatusBadge = (status: WebinarStatus, webinarId: string) => {
     const liveStatus = getWebinarStatus(webinarId);
@@ -136,7 +142,7 @@ const WebinarsList = ({ filters }: WebinarsListProps) => {
           }
         </h2>
         <div className="flex items-center space-x-2">
-          {hasZeroCounts && (
+          {hasLikelyMissingAttendeeData && (
             <Button 
               onClick={handleFixCounts}
               disabled={fixing}
@@ -145,7 +151,7 @@ const WebinarsList = ({ filters }: WebinarsListProps) => {
               className="flex items-center space-x-2 text-orange-600 border-orange-200 hover:bg-orange-50"
             >
               <AlertCircle className={`w-4 h-4 ${fixing ? 'animate-spin' : ''}`} />
-              <span>Fix Counts</span>
+              <span>Fix Attendee Data</span>
             </Button>
           )}
           <Button 
@@ -161,14 +167,17 @@ const WebinarsList = ({ filters }: WebinarsListProps) => {
         </div>
       </div>
 
-      {hasZeroCounts && (
+      {hasLikelyMissingAttendeeData && (
         <Card className="border-orange-200 bg-orange-50">
           <CardContent className="pt-6">
             <div className="flex items-center space-x-2 text-orange-800">
               <AlertCircle className="w-5 h-5" />
               <div>
-                <p className="font-medium">Attendee counts appear to be missing</p>
-                <p className="text-sm text-orange-700">Click "Fix Counts" to recalculate attendee and registrant numbers from your data.</p>
+                <p className="font-medium">Missing attendee data detected</p>
+                <p className="text-sm text-orange-700">
+                  Some completed webinars have registrations but no attendee data. 
+                  This typically happens when participant data wasn't synced from Zoom after the webinar ended.
+                </p>
               </div>
             </div>
           </CardContent>
@@ -207,8 +216,20 @@ const WebinarsList = ({ filters }: WebinarsListProps) => {
                     <div className="flex items-center space-x-2">
                       <Users className="w-4 h-4 text-gray-400" />
                       <span>
-                        {webinar.attendees_count || 0} attendees
-                        {webinar.registrants_count && ` (${webinar.registrants_count} registered)`}
+                        {webinar.status === 'completed' && webinar.attendees_count === 0 && webinar.registrants_count > 0 ? (
+                          <span className="text-orange-600">
+                            No attendee data • {webinar.registrants_count} registered
+                          </span>
+                        ) : webinar.status === 'upcoming' || webinar.status === 'scheduled' ? (
+                          <span>
+                            {webinar.registrants_count || 0} registered
+                          </span>
+                        ) : (
+                          <span>
+                            {webinar.attendees_count || 0} attendees
+                            {webinar.registrants_count && ` (${webinar.registrants_count} registered)`}
+                          </span>
+                        )}
                       </span>
                     </div>
 

@@ -73,7 +73,7 @@ export const useAttendeeCountFix = () => {
       // Get all webinars for the organization
       const { data: webinars, error: webinarsError } = await supabase
         .from('webinars')
-        .select('id, title')
+        .select('id, title, status')
         .eq('organization_id', profile.organization_id);
 
       if (webinarsError) {
@@ -83,24 +83,39 @@ export const useAttendeeCountFix = () => {
       let fixed = 0;
       let totalAttendees = 0;
       let totalRegistrants = 0;
+      let webinarsWithMissingData = 0;
 
       for (const webinar of webinars || []) {
         try {
           const counts = await fixAttendeeCountsForWebinar(webinar.id);
           totalAttendees += counts.attendees_count;
           totalRegistrants += counts.registrants_count;
+          
+          // Track webinars that likely had missing attendee data
+          if (webinar.status === 'completed' && counts.attendees_count === 0 && counts.registrants_count > 0) {
+            webinarsWithMissingData++;
+          }
+          
           fixed++;
         } catch (error) {
           console.error(`Failed to fix counts for webinar ${webinar.title}:`, error);
         }
       }
 
-      toast({
-        title: "Attendee Counts Fixed",
-        description: `Updated ${fixed} webinars with ${totalAttendees} attendees and ${totalRegistrants} registrants`,
-      });
+      if (webinarsWithMissingData > 0) {
+        toast({
+          title: "Count Update Complete",
+          description: `Updated ${fixed} webinars. Found ${webinarsWithMissingData} completed webinars that may need attendee data synced from Zoom.`,
+          variant: "default",
+        });
+      } else {
+        toast({
+          title: "Attendee Counts Updated",
+          description: `Updated ${fixed} webinars with ${totalAttendees} attendees and ${totalRegistrants} registrants`,
+        });
+      }
 
-      return { fixed, totalAttendees, totalRegistrants };
+      return { fixed, totalAttendees, totalRegistrants, webinarsWithMissingData };
     } catch (error: any) {
       console.error('Error fixing attendee counts:', error);
       toast({
