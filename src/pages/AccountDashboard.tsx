@@ -6,10 +6,12 @@ import ZoomIntegration from "@/components/ZoomIntegration";
 import UserProfileCard from "@/components/UserProfileCard";
 import RecentActivityCard from "@/components/RecentActivityCard";
 import BulkRegistrationRecovery from "@/components/BulkRegistrationRecovery";
+import { useSyncLogs } from "@/hooks/useSyncLogs";
 import { Settings, Database, User, Activity } from "lucide-react";
 
 const AccountDashboard = () => {
   const { user } = useAuth();
+  const { syncLogs } = useSyncLogs();
 
   if (!user) {
     return (
@@ -51,7 +53,7 @@ const AccountDashboard = () => {
         </TabsList>
 
         <TabsContent value="profile" className="space-y-6">
-          <UserProfileCard />
+          <UserProfileCard user={user} />
         </TabsContent>
 
         <TabsContent value="integrations" className="space-y-6">
@@ -63,7 +65,7 @@ const AccountDashboard = () => {
         </TabsContent>
 
         <TabsContent value="activity" className="space-y-6">
-          <RecentActivityCard />
+          <RecentActivityCard syncLogs={syncLogs} />
         </TabsContent>
       </Tabs>
     </div>
