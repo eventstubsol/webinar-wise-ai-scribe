@@ -70,15 +70,22 @@ export function mapAttendeeToAttendeeRecord(attendee: any, organizationId: strin
   const engagementScore = Math.min(9.99, Math.max(0, duration / 60)); // Max 9.99 to fit in numeric(3,2)
   
   const zoomUserId = extractZoomUserId(attendee, instanceId, index);
+  const email = attendee.user_email || attendee.email || '';
+  const name = attendee.name || attendee.user_name || 'Unknown';
   
-  console.log(`[participantMapper] Processing attendee: name=${attendee.name || attendee.user_name}, email=${attendee.user_email || attendee.email}, zoom_user_id=${zoomUserId}, duration=${duration}, engagement_score=${engagementScore}`);
+  console.log(`[participantMapper] Processing attendee: name=${name}, email=${email}, zoom_user_id=${zoomUserId}, duration=${duration}, engagement_score=${engagementScore}`);
+  
+  // Validate required fields
+  if (!email && !zoomUserId) {
+    console.warn(`[participantMapper] Attendee has no email or zoom_user_id: ${name} - this may cause storage issues`);
+  }
   
   return {
     organization_id: organizationId,
     webinar_id: internalWebinarId,
     zoom_user_id: zoomUserId,
-    email: attendee.user_email || attendee.email || '',
-    name: attendee.name || attendee.user_name || 'Unknown',
+    email: email,
+    name: name,
     join_time: attendee.join_time || new Date().toISOString(),
     leave_time: attendee.leave_time,
     duration_minutes: Math.round(duration / 60), // Convert seconds to minutes

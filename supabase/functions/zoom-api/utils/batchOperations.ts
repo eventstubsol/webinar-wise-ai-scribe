@@ -13,7 +13,7 @@ export async function storeParticipantsInBatches(
   let totalStored = 0;
   
   try {
-    console.log(`[batchOperations] Starting batch storage for instance ${instanceId}: ${registrants.length} registrants, ${attendees.length} attendees`);
+    console.log(`[batchOperations] Starting enhanced batch storage for instance ${instanceId}: ${registrants.length} registrants, ${attendees.length} attendees`);
     
     // Get user's organization_id first
     const { data: profile, error: profileError } = await supabase
@@ -55,10 +55,13 @@ export async function storeParticipantsInBatches(
       .eq('instance_id', instanceId);
     
     // Store registrants
+    console.log(`[batchOperations] Storing registrants...`);
     const registrantsStored = await storeRegistrants(supabase, userId, instanceId, webinarId, registrants);
     totalStored += registrantsStored;
+    console.log(`[batchOperations] Registrants stored: ${registrantsStored}`);
     
-    // Store attendees
+    // Store attendees with enhanced error handling
+    console.log(`[batchOperations] Storing attendees...`);
     const attendeesStored = await storeAttendees(
       supabase, 
       userId, 
@@ -69,6 +72,7 @@ export async function storeParticipantsInBatches(
       internalWebinarId
     );
     totalStored += attendeesStored;
+    console.log(`[batchOperations] Attendees stored: ${attendeesStored}`);
     
     console.log(`[batchOperations] Successfully stored ${totalStored} total participants for instance ${instanceId}`);
     
@@ -81,10 +85,18 @@ export async function storeParticipantsInBatches(
     
     console.log(`[batchOperations] Total attendees now in attendees table for this webinar: ${finalAttendeeCount?.length || 'unknown'}`);
     
+    // Detailed success reporting
+    console.log(`[batchOperations] Batch operation summary:`);
+    console.log(`  - Instance ID: ${instanceId}`);
+    console.log(`  - Total input: ${registrants.length + attendees.length} participants`);
+    console.log(`  - Successfully stored: ${totalStored} participants`);
+    console.log(`  - Success rate: ${((totalStored / (registrants.length + attendees.length)) * 100).toFixed(1)}%`);
+    
     return totalStored;
     
   } catch (error) {
-    console.error('[batchOperations] Critical error during batch storage:', error);
+    console.error('[batchOperations] Critical error during enhanced batch storage:', error);
+    console.error('[batchOperations] Error details:', JSON.stringify(error, null, 2));
     return totalStored;
   }
 }
