@@ -26,6 +26,39 @@ export async function handleChunkedMassResync(body: any, supabase: any, user: an
 
     console.log(`[chunkedMassResync] Starting chunk ${chunk}, job_id: ${job_id || 'new'}`);
 
+    // Get user's profile to fetch organization_id
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('organization_id')
+      .eq('id', user.id)
+      .single();
+
+    if (profileError || !profile) {
+      console.error('[chunkedMassResync] Profile fetch error:', profileError);
+      return new Response(JSON.stringify({ 
+        success: false, 
+        error: 'User profile not found or no organization assigned',
+        chunk_failed: true 
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    const organizationId = profile.organization_id;
+    
+    if (!organizationId) {
+      console.error('[chunkedMassResync] No organization_id found for user:', user.id);
+      return new Response(JSON.stringify({ 
+        success: false, 
+        error: 'User has no organization assigned',
+        chunk_failed: true 
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
     // Get or create job tracking record
     let progressRecord: any;
     
@@ -57,6 +90,7 @@ export async function handleChunkedMassResync(body: any, supabase: any, user: an
         .from('webinars')
         .select('zoom_webinar_id, title')
         .eq('user_id', user.id)
+        .eq('organization_id', organizationId)
         .not('zoom_webinar_id', 'is', null)
         .limit(100); // Limit to prevent massive jobs
       
@@ -86,12 +120,12 @@ export async function handleChunkedMassResync(body: any, supabase: any, user: an
       const totalWebinars = webinars.length;
       const totalChunks = Math.ceil(totalWebinars / CHUNK_SIZE);
       
-      // Create job record
+      // Create job record with proper organization_id
       const { data: newJob, error: createError } = await supabase
         .from('mass_resync_jobs')
         .insert({
           user_id: user.id,
-          organization_id: user.organization_id,
+          organization_id: organizationId, // Use the fetched organization_id
           total_webinars: totalWebinars,
           processed_webinars: 0,
           current_chunk: 0,
