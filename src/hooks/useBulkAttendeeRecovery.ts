@@ -146,7 +146,7 @@ export const useBulkAttendeeRecovery = () => {
                 addLog(`   ⚠️ Issues handled: ${result.errors} errors (${recovery_stats?.database_errors || 0} DB, ${recovery_stats?.validation_errors || 0} validation, ${recovery_stats?.constraint_violations || 0} constraints)`);
               }
               
-              addLog(`   🔧 API: ${result.api_used}, Pages: ${recovery_stats?.total_pages_processed || '?'}`);
+              addLog(`   🔧 API: ${result.api_used}, Pages: ${recovery_stats?.pages_processed || '?'}`);
             } else if (result.success) {
               addLog(`ℹ️ EMPTY: ${result.title} - ${result.error_message || 'No attendees found in Zoom'}`);
             } else {

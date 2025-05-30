@@ -13,11 +13,13 @@ export interface AttendeeRecoveryProgress {
 export interface RecoveryStats {
   database_errors?: number;
   validation_errors?: number;
+  constraint_violations?: number;
   bot_detections?: number;
   email_rejections?: number;
   duration_filters?: number;
   api_calls_made?: number;
   pages_processed?: number;
+  total_pages_processed?: number;
   total_raw_found?: number;
 }
 
