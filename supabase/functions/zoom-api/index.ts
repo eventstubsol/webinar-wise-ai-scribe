@@ -56,7 +56,8 @@ serve(async (req) => {
       });
     }
 
-    const { action, webinar_id } = await req.json();
+    const body = await req.json();
+    const { action } = body;
 
     // Decrypt credentials (using simplified approach for this example)
     const credentials = {
@@ -67,6 +68,7 @@ serve(async (req) => {
 
     switch (action) {
       case 'sync_webinar':
+        const { webinar_id } = body;
         if (!webinar_id) {
           return new Response(JSON.stringify({ error: 'webinar_id is required for sync_webinar action' }), {
             status: 400,
@@ -85,6 +87,27 @@ serve(async (req) => {
 
       case 'mass_resync':
         return await handleMassResyncAllWebinars(req, supabase, user, credentials);
+
+      case 'mass-resync-all-webinars':
+        return await handleMassResyncAllWebinars(req, supabase, user, credentials);
+
+      case 'sync-complete-webinar':
+        const { webinar_id: completeWebinarId } = body;
+        if (!completeWebinarId) {
+          return new Response(JSON.stringify({ error: 'webinar_id is required for sync-complete-webinar action' }), {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          });
+        }
+        
+        const completeResult = await syncCompleteWebinarWithAllInstances(completeWebinarId, credentials, supabase, user);
+        
+        return new Response(JSON.stringify({
+          success: true,
+          result: completeResult
+        }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
 
       default:
         return new Response(JSON.stringify({ error: 'Invalid action' }), {
