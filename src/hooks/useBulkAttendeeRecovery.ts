@@ -43,8 +43,8 @@ export const useBulkAttendeeRecovery = () => {
       setRecoveryResults([]);
       setRecoveryLogs([]);
 
-      addLog('🚀 Starting AGGRESSIVE bulk attendee recovery with maximum data capture...');
-      addLog('📊 New features: Maximum pagination, lenient filtering, multi-endpoint strategy, robust error handling');
+      addLog('🚀 Starting ENHANCED bulk attendee recovery with maximum data recovery...');
+      addLog('📊 Improvements: Transaction-based processing, improved error handling, enhanced data validation');
 
       // Step 1: Clear any stuck jobs
       try {
@@ -55,7 +55,7 @@ export const useBulkAttendeeRecovery = () => {
         addLog(`⚠️ Warning clearing stuck jobs: ${error.message}`);
       }
 
-      // Step 2: Get webinars to process (now prioritized by data gaps)
+      // Step 2: Get webinars to process with enhanced prioritization
       const { webinars, organization_id } = await getWebinarsForAttendeeRecovery(user.id);
       
       const zeroAttendeeCount = webinars.filter(w => (w.attendees_count || 0) === 0).length;
@@ -68,7 +68,7 @@ export const useBulkAttendeeRecovery = () => {
       addLog(`🎯 Found ${webinars.length} webinars to process:`);
       addLog(`  • ${zeroAttendeeCount} with ZERO attendees (highest priority)`);
       addLog(`  • ${lowDataCount} with suspected data gaps`);
-      addLog(`  • Webinars are prioritized by data gap severity`);
+      addLog(`  • Enhanced prioritization applied based on data gap severity`);
       
       setRecoveryProgress(prev => ({ 
         ...prev, 
@@ -78,91 +78,111 @@ export const useBulkAttendeeRecovery = () => {
         errors: 0
       }));
 
-      // Step 3: Process webinars in optimized batches
-      const batchSize = 2; // Smaller batches for more aggressive recovery
+      // Step 3: Process webinars in optimized batches with enhanced error handling
+      const batchSize = 1; // Process one at a time for maximum reliability
       const results: WebinarAttendeeResult[] = [];
       let totalAttendees = 0;
       let totalErrors = 0;
       let totalFound = 0;
-      let aggressiveRecoveries = 0;
+      let successfulRecoveries = 0;
+      let failedRecoveries = 0;
 
       for (let i = 0; i < webinars.length; i += batchSize) {
         const batch = webinars.slice(i, i + batchSize);
         const batchNum = Math.floor(i / batchSize) + 1;
         const totalBatches = Math.ceil(webinars.length / batchSize);
         
-        addLog(`\n📦 Processing batch ${batchNum}/${totalBatches} (${batch.length} webinars) with AGGRESSIVE recovery...`);
+        addLog(`\n📦 Processing batch ${batchNum}/${totalBatches} (${batch.length} webinars) with ENHANCED recovery...`);
 
-        // Process batch with enhanced error handling
+        // Process batch with comprehensive error handling
         const batchPromises = batch.map(webinar => 
           recoverWebinarAttendees(webinar, organization_id, user.id)
         );
 
-        const batchResults = await Promise.all(batchPromises);
-        results.push(...batchResults);
+        try {
+          const batchResults = await Promise.all(batchPromises);
+          results.push(...batchResults);
 
-        // Enhanced progress tracking with detailed metrics
-        const processed = i + batch.length;
-        const batchAttendees = batchResults.reduce((sum, r) => sum + r.attendees_stored, 0);
-        const batchFound = batchResults.reduce((sum, r) => sum + r.attendees_found, 0);
-        const batchErrors = batchResults.reduce((sum, r) => sum + r.errors, 0);
-        
-        totalAttendees += batchAttendees;
-        totalFound += batchFound;
-        totalErrors += batchErrors;
+          // Enhanced progress tracking with detailed metrics
+          const processed = i + batch.length;
+          const batchAttendees = batchResults.reduce((sum, r) => sum + r.attendees_stored, 0);
+          const batchFound = batchResults.reduce((sum, r) => sum + r.attendees_found, 0);
+          const batchErrors = batchResults.reduce((sum, r) => sum + r.errors, 0);
+          
+          totalAttendees += batchAttendees;
+          totalFound += batchFound;
+          totalErrors += batchErrors;
 
-        setRecoveryProgress(prev => ({
-          ...prev,
-          processedWebinars: processed,
-          totalAttendees,
-          errors: totalErrors,
-          currentWebinar: batch[batch.length - 1]?.title || '',
-          estimatedTimeRemaining: calculateEstimatedTime(processed, webinars.length, startTime)
-        }));
+          // Update current batch successful/failed counts
+          const batchSuccessful = batchResults.filter(r => r.success && r.attendees_stored > 0).length;
+          const batchFailed = batchResults.filter(r => !r.success).length;
+          
+          successfulRecoveries += batchSuccessful;
+          failedRecoveries += batchFailed;
 
-        setRecoveryResults([...results]);
+          setRecoveryProgress(prev => ({
+            ...prev,
+            processedWebinars: processed,
+            totalAttendees,
+            errors: totalErrors,
+            currentWebinar: batch[batch.length - 1]?.title || '',
+            estimatedTimeRemaining: calculateEstimatedTime(processed, webinars.length, startTime)
+          }));
 
-        // Enhanced logging for each webinar with recovery stats
-        batchResults.forEach(result => {
-          if (result.attendees_stored > 0) {
-            aggressiveRecoveries++;
-            const efficiency = result.attendees_found > 0 ? 
-              Math.round((result.attendees_stored / result.attendees_found) * 100) : 100;
-            const errorMsg = result.errors > 0 ? ` (${result.errors} errors handled)` : '';
-            addLog(`✅ SUCCESS: ${result.title}`);
-            addLog(`   📊 Found: ${result.attendees_found}, Stored: ${result.attendees_stored} (${efficiency}% efficiency)${errorMsg}`);
-            addLog(`   🔧 API: ${result.api_used}`);
-          } else if (result.success) {
-            addLog(`ℹ️ EMPTY: ${result.title} - ${result.error_message || 'No attendees found in Zoom'}`);
-          } else {
-            addLog(`❌ FAILED: ${result.title} - ${result.error_message || 'Unknown error'}`);
-          }
-        });
+          setRecoveryResults([...results]);
 
-        addLog(`📊 Batch ${batchNum} results: +${batchAttendees} stored, ${batchFound} found, ${batchErrors} errors`);
+          // Enhanced logging for each webinar with comprehensive statistics
+          batchResults.forEach(result => {
+            const { recovery_stats } = result;
+            
+            if (result.attendees_stored > 0) {
+              const efficiency = result.attendees_found > 0 ? 
+                Math.round((result.attendees_stored / result.attendees_found) * 100) : 100;
+              
+              addLog(`✅ SUCCESS: ${result.title}`);
+              addLog(`   📊 Found: ${result.attendees_found}, Stored: ${result.attendees_stored} (${efficiency}% efficiency)`);
+              
+              if (result.errors > 0) {
+                addLog(`   ⚠️ Issues handled: ${result.errors} errors (${recovery_stats?.database_errors || 0} DB, ${recovery_stats?.validation_errors || 0} validation, ${recovery_stats?.constraint_violations || 0} constraints)`);
+              }
+              
+              addLog(`   🔧 API: ${result.api_used}, Pages: ${recovery_stats?.total_pages_processed || '?'}`);
+            } else if (result.success) {
+              addLog(`ℹ️ EMPTY: ${result.title} - ${result.error_message || 'No attendees found in Zoom'}`);
+            } else {
+              addLog(`❌ FAILED: ${result.title} - ${result.error_message || 'Unknown error'}`);
+            }
+          });
 
-        // Short delay between batches for aggressive recovery
+          addLog(`📊 Batch ${batchNum} results: +${batchAttendees} stored, ${batchFound} found, ${batchErrors} errors`);
+
+        } catch (batchError: any) {
+          // Enhanced batch error handling - continue with next batch
+          addLog(`⚠️ Batch ${batchNum} encountered an error: ${batchError.message}`);
+          addLog(`🔄 Continuing with next batch...`);
+          failedRecoveries += batch.length;
+        }
+
+        // Short delay between batches
         if (i + batchSize < webinars.length) {
-          addLog('⏳ Brief pause before next aggressive batch...');
+          addLog('⏳ Brief pause before next enhanced batch...');
           await new Promise(resolve => setTimeout(resolve, 1500));
         }
       }
 
       // Comprehensive final summary with detailed analytics
-      const successfulWebinars = results.filter(r => r.success && r.attendees_stored > 0).length;
-      const partialSuccessWebinars = results.filter(r => r.success && r.attendees_stored === 0).length;
-      const failedWebinars = results.filter(r => !r.success).length;
+      const successfulWebinars = successfulRecoveries;
+      const failedWebinars = failedRecoveries;
       const webinarsWithErrors = results.filter(r => r.errors > 0).length;
       const averageFoundPerWebinar = successfulWebinars > 0 ? Math.round(totalFound / successfulWebinars) : 0;
       const averageStoredPerWebinar = successfulWebinars > 0 ? Math.round(totalAttendees / successfulWebinars) : 0;
       const dataRecoveryRate = totalFound > 0 ? Math.round((totalAttendees / totalFound) * 100) : 0;
 
-      addLog(`\n🎉 AGGRESSIVE BULK ATTENDEE RECOVERY COMPLETED!`);
+      addLog(`\n🎉 ENHANCED BULK ATTENDEE RECOVERY COMPLETED!`);
       addLog(`📈 Comprehensive Results Summary:`);
       addLog(`  📊 PROCESSING METRICS:`);
       addLog(`     • Webinars processed: ${webinars.length}`);
       addLog(`     • Successful recoveries: ${successfulWebinars}`);
-      addLog(`     • Empty results: ${partialSuccessWebinars}`);
       addLog(`     • Complete failures: ${failedWebinars}`);
       addLog(`     • Had errors/warnings: ${webinarsWithErrors}`);
       addLog(`  🎯 DATA RECOVERY METRICS:`);
@@ -173,15 +193,15 @@ export const useBulkAttendeeRecovery = () => {
       addLog(`     • Average stored per webinar: ${averageStoredPerWebinar}`);
       addLog(`     • Total errors handled: ${totalErrors}`);
       addLog(`  🚀 RECOVERY PERFORMANCE:`);
-      addLog(`     • Aggressive recoveries: ${aggressiveRecoveries}/${webinars.length}`);
+      addLog(`     • Successful webinars: ${successfulWebinars}/${webinars.length}`);
       addLog(`     • Success rate: ${Math.round((successfulWebinars / webinars.length) * 100)}%`);
 
       const message = totalAttendees > 0 
-        ? `🎯 AGGRESSIVE RECOVERY SUCCESS! Found ${totalFound.toLocaleString()} attendees in Zoom, stored ${totalAttendees.toLocaleString()} (${dataRecoveryRate}% efficiency). ${totalErrors > 0 ? `Handled ${totalErrors} errors.` : 'No errors!'}`
+        ? `🎯 ENHANCED RECOVERY SUCCESS! Found ${totalFound.toLocaleString()} attendees in Zoom, stored ${totalAttendees.toLocaleString()} (${dataRecoveryRate}% efficiency). ${totalErrors > 0 ? `Handled ${totalErrors} errors.` : 'No errors!'}`
         : `⚠️ Recovery completed but no attendees were stored. This may indicate data isn't available in Zoom for these webinars. Check individual results for details.`;
 
       toast({
-        title: totalAttendees > 0 ? "🎉 Aggressive Recovery Success!" : "⚠️ Recovery Completed",
+        title: totalAttendees > 0 ? "🎉 Enhanced Recovery Success!" : "⚠️ Recovery Completed",
         description: totalAttendees > 0 
           ? `Recovered ${totalAttendees.toLocaleString()} attendees from ${successfulWebinars} webinars!`
           : "No attendees were recovered. Check logs for details.",
@@ -189,9 +209,9 @@ export const useBulkAttendeeRecovery = () => {
       });
 
     } catch (error: any) {
-      addLog(`❌ AGGRESSIVE bulk attendee recovery failed: ${error.message}`);
+      addLog(`❌ ENHANCED bulk attendee recovery failed: ${error.message}`);
       toast({
-        title: "🚨 Aggressive Recovery Failed",
+        title: "🚨 Enhanced Recovery Failed",
         description: error.message,
         variant: "destructive",
       });

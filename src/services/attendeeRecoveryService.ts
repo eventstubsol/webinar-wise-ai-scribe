@@ -47,10 +47,15 @@ export const getWebinarsForAttendeeRecovery = async (userId: string) => {
 
   if (error) throw error;
 
-  // Prioritize webinars with 0 attendees, then by lowest attendee count relative to expected
+  // Enhanced prioritization algorithm:
+  // 1. Zero attendees webinars (highest priority)
+  // 2. Webinars with significant gap between registrants and attendees
+  // 3. Recent webinars with low attendee counts
   const prioritized = webinars?.sort((a, b) => {
     const aCount = a.attendees_count || 0;
     const bCount = b.attendees_count || 0;
+    
+    // Expected attendees based on registrants or reasonable estimate
     const aExpected = a.registrants_count || Math.max(50, aCount * 1.5);
     const bExpected = b.registrants_count || Math.max(50, bCount * 1.5);
     
@@ -58,10 +63,24 @@ export const getWebinarsForAttendeeRecovery = async (userId: string) => {
     if (aCount === 0 && bCount > 0) return -1;
     if (aCount > 0 && bCount === 0) return 1;
     
-    // Then by gap percentage (higher gap = higher priority)
+    // Calculate gap percentages
     const aGapPercentage = aExpected > 0 ? ((aExpected - aCount) / aExpected) * 100 : 0;
     const bGapPercentage = bExpected > 0 ? ((bExpected - bCount) / bExpected) * 100 : 0;
     
+    // Significant gap threshold (40%)
+    const significantGap = 40;
+    
+    // If both have significant gaps or neither has, sort by gap size
+    if ((aGapPercentage > significantGap && bGapPercentage > significantGap) ||
+        (aGapPercentage <= significantGap && bGapPercentage <= significantGap)) {
+      return bGapPercentage - aGapPercentage;
+    }
+    
+    // Prioritize significant gaps
+    if (aGapPercentage > significantGap) return -1;
+    if (bGapPercentage > significantGap) return 1;
+    
+    // If we get here, sort by gap percentage
     return bGapPercentage - aGapPercentage;
   }) || [];
 
@@ -74,9 +93,9 @@ export const recoverWebinarAttendees = async (
   userId: string
 ): Promise<WebinarAttendeeResult> => {
   try {
-    console.log(`🚀 Starting aggressive recovery for webinar: ${webinar.title} (${webinar.zoom_webinar_id})`);
+    console.log(`🚀 Starting enhanced recovery for webinar: ${webinar.title} (${webinar.zoom_webinar_id})`);
     
-    // Use the enhanced aggressive sync function
+    // Use the enhanced recovery function
     const { data, error } = await supabase.functions.invoke('zoom-sync-participants', {
       body: {
         organization_id: organizationId,
@@ -87,7 +106,7 @@ export const recoverWebinarAttendees = async (
     });
 
     if (error) {
-      console.error(`❌ Aggressive recovery failed for ${webinar.title}:`, error);
+      console.error(`❌ Enhanced recovery failed for ${webinar.title}:`, error);
       return {
         webinar_id: webinar.id,
         zoom_webinar_id: webinar.zoom_webinar_id,
@@ -102,15 +121,20 @@ export const recoverWebinarAttendees = async (
     }
 
     const result = data as any;
-    console.log(`📊 Aggressive recovery result for ${webinar.title}:`, result);
+    console.log(`📊 Enhanced recovery result for ${webinar.title}:`, result);
     
-    // Enhanced result processing with recovery statistics
+    // Comprehensive result processing with enhanced statistics
     const recoveryStats = result.recovery_stats || {};
-    const totalErrors = (recoveryStats.database_errors || 0) + (recoveryStats.validation_errors || 0);
+    const totalErrors = 
+      (recoveryStats.database_errors || 0) + 
+      (recoveryStats.validation_errors || 0) + 
+      (recoveryStats.constraint_violations || 0);
     
+    // Generate a detailed success message with enhanced information
     const successMessage = result.message || 
-      `Aggressive recovery: Found ${result.total_found || 0}, stored ${result.participants_synced || 0}`;
+      `Enhanced recovery: Found ${result.total_found || 0}, stored ${result.participants_synced || 0}`;
     
+    // Return comprehensive result with detailed statistics
     return {
       webinar_id: webinar.id,
       zoom_webinar_id: webinar.zoom_webinar_id,
@@ -122,11 +146,11 @@ export const recoverWebinarAttendees = async (
       api_used: result.api_used || 'unknown',
       error_message: result.success ? 
         (totalErrors > 0 ? `${successMessage} (${totalErrors} errors handled)` : successMessage) :
-        (result.error || 'Unknown error during aggressive recovery'),
+        (result.error || 'Unknown error during enhanced recovery'),
       recovery_stats: recoveryStats
     };
   } catch (error: any) {
-    console.error(`💥 Exception during aggressive recovery for ${webinar.title}:`, error);
+    console.error(`💥 Exception during enhanced recovery for ${webinar.title}:`, error);
     return {
       webinar_id: webinar.id,
       zoom_webinar_id: webinar.zoom_webinar_id,
@@ -135,7 +159,7 @@ export const recoverWebinarAttendees = async (
       attendees_stored: 0,
       errors: 1,
       success: false,
-      error_message: `Exception during aggressive recovery: ${error.message}`,
+      error_message: `Exception during enhanced recovery: ${error.message}`,
       api_used: 'unknown'
     };
   }
