@@ -49,7 +49,7 @@ const WebinarsList = ({ filters }: WebinarsListProps) => {
   );
 
   const hasLikelyMissingAttendeeData = webinarsWithMissingAttendeeData.length > 0;
-  const hasFilters = filters.search || filters.status !== 'all';
+  const hasFilters = Boolean(filters.search) || filters.status !== 'all';
 
   const handleRefresh = async () => {
     await syncWebinarData();
