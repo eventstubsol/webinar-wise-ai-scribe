@@ -1,8 +1,13 @@
 
+// Legacy participant storage - now replaced with historical preservation
+// This file is kept for compatibility but the main logic has moved to historicalParticipantStorage.ts
+
 import { mapRegistrantToParticipant, mapAttendeeToParticipant, mapAttendeeToAttendeeRecord } from './participantMapper.ts';
 
-const BATCH_SIZE = 30; // Reduced batch size for better error handling
+const BATCH_SIZE = 30;
 
+// Legacy function - kept for backward compatibility
+// New syncs should use historicalParticipantStorage.ts functions
 export async function storeRegistrants(
   supabase: any,
   userId: string,
@@ -10,6 +15,8 @@ export async function storeRegistrants(
   webinarId: string,
   registrants: any[]
 ) {
+  console.log(`[participantStorage] Legacy storeRegistrants called - consider using historical preservation instead`);
+  
   let totalStored = 0;
   
   if (registrants.length === 0) return totalStored;
@@ -39,6 +46,8 @@ export async function storeRegistrants(
   return totalStored;
 }
 
+// Legacy function - kept for backward compatibility
+// New syncs should use historicalParticipantStorage.ts functions
 export async function storeAttendees(
   supabase: any,
   userId: string,
@@ -48,23 +57,31 @@ export async function storeAttendees(
   organizationId: string,
   internalWebinarId: string
 ) {
+  console.log(`[participantStorage] Legacy storeAttendees called - consider using historical preservation instead`);
+  
   let totalStored = 0;
   
   if (attendees.length === 0) return totalStored;
   
-  console.log(`[participantStorage] Storing ${attendees.length} attendees in batches of ${BATCH_SIZE} using INSERT operations to capture all attendance sessions`);
+  console.log(`[participantStorage] Storing ${attendees.length} attendees in batches of ${BATCH_SIZE} - HISTORICAL PRESERVATION MODE`);
   
   for (let i = 0; i < attendees.length; i += BATCH_SIZE) {
     const batch = attendees.slice(i, i + BATCH_SIZE);
     
-    // Store in zoom_webinar_instance_participants (this should not have conflicts)
+    // Store in zoom_webinar_instance_participants (legacy compatibility)
     const participantsToInsert = batch.map((attendee: any, index: number) => 
       mapAttendeeToParticipant(attendee, userId, instanceId, webinarId, i + index)
     );
     
-    // Store in attendees table using INSERT (no more UPSERT to allow multiple records)
+    // Store in attendees table using INSERT (preserving multiple records per person)
     const attendeesToInsert = batch.map((attendee: any, index: number) => {
       const mappedAttendee = mapAttendeeToAttendeeRecord(attendee, organizationId, internalWebinarId, instanceId, i + index);
+      
+      // Add historical preservation fields
+      mappedAttendee.is_historical = false;
+      mappedAttendee.zoom_data_available = true;
+      mappedAttendee.last_zoom_sync = new Date().toISOString();
+      mappedAttendee.data_source = 'zoom_sync';
       
       // Validate engagement_score to prevent numeric overflow
       if (mappedAttendee.engagement_score > 9.99) {
@@ -80,7 +97,7 @@ export async function storeAttendees(
       .from('zoom_webinar_instance_participants')
       .insert(participantsToInsert);
     
-    // INSERT into attendees table (no longer using upsert to allow multiple records per person)
+    // INSERT into attendees table (allowing multiple records per person per webinar)
     const attendeesResult = await supabase
       .from('attendees')
       .insert(attendeesToInsert);
@@ -93,35 +110,8 @@ export async function storeAttendees(
     
     if (attendeesResult.error) {
       console.error(`[participantStorage] Error inserting attendees batch ${i}-${i + batch.length}:`, attendeesResult.error);
-      console.error(`[participantStorage] Attendees error details:`, JSON.stringify(attendeesResult.error, null, 2));
-      
-      // If the batch failed, try inserting one by one to identify any remaining issues
-      console.log(`[participantStorage] Attempting individual inserts for failed batch...`);
-      let individualSuccesses = 0;
-      
-      for (const attendee of attendeesToInsert) {
-        try {
-          const { error: individualError } = await supabase
-            .from('attendees')
-            .insert([attendee]);
-          
-          if (!individualError) {
-            individualSuccesses++;
-          } else {
-            console.error(`[participantStorage] Individual insert failed for ${attendee.name} (${attendee.email}):`, individualError.message);
-          }
-        } catch (err) {
-          console.error(`[participantStorage] Exception during individual insert for ${attendee.name}:`, err);
-        }
-        
-        // Small delay to prevent overwhelming the database
-        await new Promise(resolve => setTimeout(resolve, 50));
-      }
-      
-      console.log(`[participantStorage] Individual inserts completed: ${individualSuccesses}/${attendeesToInsert.length} successful`);
-      totalStored += individualSuccesses;
     } else {
-      console.log(`[participantStorage] Successfully inserted attendees batch ${i + 1}-${i + batch.length} - now storing ALL attendance records including multiple sessions per person`);
+      console.log(`[participantStorage] Successfully inserted attendees batch ${i + 1}-${i + batch.length} - HISTORICAL PRESERVATION ENABLED`);
       totalStored += batch.length;
     }
     

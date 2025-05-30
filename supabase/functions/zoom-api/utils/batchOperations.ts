@@ -1,5 +1,4 @@
-
-import { storeRegistrants, storeAttendees } from './participantStorage.ts';
+import { storeAttendeesWithHistoricalPreservation, storeRegistrantsWithHistoricalPreservation } from './historicalParticipantStorage.ts';
 import { storeWebinarInstance } from './webinarInstanceStorage.ts';
 
 export async function storeParticipantsInBatches(
@@ -13,8 +12,8 @@ export async function storeParticipantsInBatches(
   let totalStored = 0;
   
   try {
-    console.log(`[batchOperations] Starting enhanced batch storage for instance ${instanceId}: ${registrants.length} registrants, ${attendees.length} attendees`);
-    console.log(`[batchOperations] Note: Now storing ALL attendance records including multiple sessions per person per webinar`);
+    console.log(`[batchOperations] Starting historical data preservation for instance ${instanceId}: ${registrants.length} registrants, ${attendees.length} attendees`);
+    console.log(`[batchOperations] Using historical preservation - existing data will be preserved and marked as historical when changes occur`);
     
     // Get user's organization_id first
     const { data: profile, error: profileError } = await supabase
@@ -36,71 +35,91 @@ export async function storeParticipantsInBatches(
       .from('webinars')
       .select('id')
       .eq('zoom_webinar_id', webinarId)
-      .eq('organization_id', organizationId)
       .single();
 
     if (webinarError || !webinarRecord) {
-      console.error('[batchOperations] Failed to find webinar record:', webinarError);
-      throw new Error(`Unable to find webinar with Zoom ID: ${webinarId}`);
+      console.error('[batchOperations] Failed to get internal webinar ID:', webinarError);
+      throw new Error(`Unable to find webinar with zoom_webinar_id: ${webinarId}`);
     }
 
     const internalWebinarId = webinarRecord.id;
     console.log(`[batchOperations] Found internal webinar ID: ${internalWebinarId}`);
+
+    // NO MORE CLEARING EXISTING DATA - We now preserve historical data
+    console.log(`[batchOperations] Historical preservation mode: existing data will be preserved`);
     
-    // Clear existing data for THIS SPECIFIC INSTANCE ONLY to avoid duplicates
-    console.log(`[batchOperations] Clearing existing data for instance ${instanceId} only`);
-    await supabase
-      .from('zoom_webinar_instance_participants')
-      .delete()
-      .eq('user_id', userId)
-      .eq('instance_id', instanceId);
+    // Store registrants with historical preservation
+    if (registrants.length > 0) {
+      console.log(`[batchOperations] Storing registrants with historical preservation...`);
+      const registrantsStored = await storeRegistrantsWithHistoricalPreservation(
+        supabase,
+        userId,
+        instanceId,
+        webinarId,
+        registrants,
+        internalWebinarId,
+        organizationId
+      );
+      totalStored += registrantsStored;
+      console.log(`[batchOperations] Registrants processed: ${registrantsStored} new/updated records`);
+    }
     
-    // Store registrants
-    console.log(`[batchOperations] Storing registrants...`);
-    const registrantsStored = await storeRegistrants(supabase, userId, instanceId, webinarId, registrants);
-    totalStored += registrantsStored;
-    console.log(`[batchOperations] Registrants stored: ${registrantsStored}`);
-    
-    // Store attendees with new INSERT-only approach (no more deduplication)
-    console.log(`[batchOperations] Storing attendees using INSERT operations to capture all attendance sessions...`);
-    const attendeesStored = await storeAttendees(
-      supabase, 
-      userId, 
-      instanceId, 
-      webinarId, 
-      attendees, 
-      organizationId, 
-      internalWebinarId
-    );
-    totalStored += attendeesStored;
-    console.log(`[batchOperations] Attendees stored: ${attendeesStored}`);
-    
-    console.log(`[batchOperations] Successfully stored ${totalStored} total participants for instance ${instanceId}`);
-    
-    // Log final counts for verification
-    const { data: finalAttendeeCount } = await supabase
+    // Store attendees with historical preservation
+    if (attendees.length > 0) {
+      console.log(`[batchOperations] Storing attendees with historical preservation...`);
+      const attendeesStored = await storeAttendeesWithHistoricalPreservation(
+        supabase,
+        userId,
+        instanceId,
+        webinarId,
+        attendees,
+        organizationId,
+        internalWebinarId
+      );
+      totalStored += attendeesStored;
+      console.log(`[batchOperations] Attendees processed: ${attendeesStored} new/updated records`);
+    }
+
+    // Update total count in webinars table (only count current/active records)
+    const { data: currentAttendees } = await supabase
       .from('attendees')
-      .select('id', { count: 'exact' })
-      .eq('organization_id', organizationId)
-      .eq('webinar_id', internalWebinarId);
+      .select('id')
+      .eq('webinar_id', internalWebinarId)
+      .eq('is_historical', false);
     
-    console.log(`[batchOperations] Total attendees now in attendees table for this webinar: ${finalAttendeeCount?.length || 'unknown'}`);
+    const currentAttendeesCount = currentAttendees?.length || 0;
     
-    // Detailed success reporting
-    console.log(`[batchOperations] Batch operation summary:`);
-    console.log(`  - Instance ID: ${instanceId}`);
-    console.log(`  - Total input: ${registrants.length + attendees.length} participants`);
-    console.log(`  - Successfully stored: ${totalStored} participants`);
-    console.log(`  - Success rate: ${((totalStored / (registrants.length + attendees.length)) * 100).toFixed(1)}%`);
-    console.log(`  - Storage method: INSERT (allowing multiple records per person per webinar)`);
+    await supabase
+      .from('webinars')
+      .update({ 
+        attendees_count: currentAttendeesCount,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', internalWebinarId);
+
+    console.log(`[batchOperations] Successfully processed participants with historical preservation for instance ${instanceId}`);
+    
+    // Log preservation summary
+    const { data: totalHistorical } = await supabase
+      .from('attendees')
+      .select('id')
+      .eq('webinar_id', internalWebinarId)
+      .eq('is_historical', true);
+    
+    console.log(`[batchOperations] Historical preservation summary:`);
+    console.log(`  - New/updated records: ${totalStored}`);
+    console.log(`  - Current active attendees: ${currentAttendeesCount}`);
+    console.log(`  - Historical records preserved: ${totalHistorical?.length || 0}`);
+    console.log(`  - Total records in database: ${currentAttendeesCount + (totalHistorical?.length || 0)}`);
+    console.log(`  - Data preservation: ENABLED - Historical data will persist beyond Zoom's 90-day window`);
     
     return totalStored;
     
   } catch (error) {
-    console.error('[batchOperations] Critical error during enhanced batch storage:', error);
-    console.error('[batchOperations] Error details:', JSON.stringify(error, null, 2));
-    return totalStored;
+    console.error(`[batchOperations] Error in historical data preservation:`, error);
+    throw error;
   }
 }
 
+// Keep the existing storeWebinarInstance export for compatibility
 export { storeWebinarInstance };
