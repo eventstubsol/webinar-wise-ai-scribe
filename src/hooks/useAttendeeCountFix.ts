@@ -13,27 +13,30 @@ export const useAttendeeCountFix = () => {
       console.log(`[useAttendeeCountFix] Fixing counts for webinar: ${webinarId}`);
       
       // Get attendee count (excluding historical records)
-      const { count: attendeeCount } = await supabase
+      const attendeeResult = await supabase
         .from('attendees')
         .select('id', { count: 'exact', head: true })
         .eq('webinar_id', webinarId)
         .eq('is_historical', false);
 
       // Get registrant count (excluding historical records)  
-      const { count: registrantCount } = await supabase
+      const registrantResult = await supabase
         .from('zoom_registrations')
         .select('id', { count: 'exact', head: true })
         .eq('webinar_id', webinarId)
         .eq('is_historical', false);
 
-      console.log(`[useAttendeeCountFix] Found ${attendeeCount || 0} attendees, ${registrantCount || 0} registrants`);
+      const attendeeCount = attendeeResult.count || 0;
+      const registrantCount = registrantResult.count || 0;
+
+      console.log(`[useAttendeeCountFix] Found ${attendeeCount} attendees, ${registrantCount} registrants`);
 
       // Update webinar counts
       const { error: updateError } = await supabase
         .from('webinars')
         .update({
-          attendees_count: attendeeCount || 0,
-          registrants_count: registrantCount || 0,
+          attendees_count: attendeeCount,
+          registrants_count: registrantCount,
           updated_at: new Date().toISOString()
         })
         .eq('id', webinarId);
@@ -45,8 +48,8 @@ export const useAttendeeCountFix = () => {
       console.log(`[useAttendeeCountFix] Successfully updated counts for webinar ${webinarId}`);
 
       return {
-        attendees_count: attendeeCount || 0,
-        registrants_count: registrantCount || 0
+        attendees_count: attendeeCount,
+        registrants_count: registrantCount
       };
     } catch (error) {
       console.error('Error fixing counts for webinar:', webinarId, error);
