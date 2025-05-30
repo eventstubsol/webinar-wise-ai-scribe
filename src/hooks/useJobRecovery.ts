@@ -41,6 +41,9 @@ export const useJobRecovery = () => {
       console.log(`Found ${stuckJobs.length} potentially stuck jobs`);
 
       // Reset stuck jobs to pending with updated timestamp
+      const existingMetadata = stuckJobs[0]?.metadata;
+      const baseMetadata = typeof existingMetadata === 'object' && existingMetadata !== null ? existingMetadata : {};
+      
       const { error: updateError } = await supabase
         .from('sync_jobs')
         .update({
@@ -48,7 +51,7 @@ export const useJobRecovery = () => {
           started_at: new Date().toISOString(),
           error_message: null,
           metadata: {
-            ...(stuckJobs[0]?.metadata || {}),
+            ...baseMetadata,
             restarted_at: new Date().toISOString(),
             restart_reason: 'Automatic recovery from stuck state'
           }
