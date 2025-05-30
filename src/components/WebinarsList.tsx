@@ -1,11 +1,13 @@
+
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Calendar, Users, Clock, RefreshCw, ExternalLink } from "lucide-react";
-import { useWebinarData } from "@/hooks/useWebinarData";
+import { usePaginatedWebinarData } from "@/hooks/usePaginatedWebinarData";
 import { useZoomIntegration } from "@/hooks/useZoomIntegration";
 import { WebinarStatus } from "@/types/sync";
 import { useRealtimeWebinars } from "@/hooks/useRealtimeWebinars";
+import WebinarsPagination from "./WebinarsPagination";
 
 interface WebinarsListProps {
   filters: {
@@ -16,7 +18,7 @@ interface WebinarsListProps {
 }
 
 const WebinarsList = ({ filters }: WebinarsListProps) => {
-  const { webinars, loading } = useWebinarData();
+  const { webinars, loading, pagination, goToPage, changePageSize, refreshData } = usePaginatedWebinarData(20);
   const { syncing, syncWebinarData } = useZoomIntegration();
   const { getWebinarStatus } = useRealtimeWebinars();
 
@@ -99,6 +101,11 @@ const WebinarsList = ({ filters }: WebinarsListProps) => {
     );
   };
 
+  const handleRefresh = async () => {
+    await syncWebinarData();
+    await refreshData();
+  };
+
   if (loading) {
     return (
       <Card>
@@ -114,10 +121,13 @@ const WebinarsList = ({ filters }: WebinarsListProps) => {
     <div className="space-y-4">
       <div className="flex justify-between items-center">
         <h2 className="text-lg font-semibold">
-          {filteredWebinars.length} Webinar{filteredWebinars.length !== 1 ? 's' : ''}
+          {pagination.totalCount} Webinar{pagination.totalCount !== 1 ? 's' : ''}
+          {filteredWebinars.length !== webinars.length && 
+            ` (${filteredWebinars.length} filtered)`
+          }
         </h2>
         <Button 
-          onClick={syncWebinarData}
+          onClick={handleRefresh}
           disabled={syncing}
           variant="outline"
           size="sm"
@@ -129,65 +139,76 @@ const WebinarsList = ({ filters }: WebinarsListProps) => {
       </div>
 
       {filteredWebinars.length > 0 ? (
-        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
-          {filteredWebinars.map((webinar) => (
-            <Card key={webinar.id} className="hover:shadow-md transition-shadow">
-              <CardHeader className="pb-3">
-                <div className="flex items-start justify-between">
-                  <CardTitle className="text-lg leading-tight">{webinar.title}</CardTitle>
-                  {getStatusBadge(webinar.status, webinar.id)}
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="space-y-2 text-sm">
-                  <div className="flex items-center space-x-2">
-                    <Calendar className="w-4 h-4 text-gray-400" />
-                    <span>
-                      {webinar.start_time 
-                        ? new Date(webinar.start_time).toLocaleDateString('en-US', {
-                            year: 'numeric',
-                            month: 'short',
-                            day: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit'
-                          })
-                        : 'Date not set'
-                      }
-                    </span>
+        <>
+          <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
+            {filteredWebinars.map((webinar) => (
+              <Card key={webinar.id} className="hover:shadow-md transition-shadow">
+                <CardHeader className="pb-3">
+                  <div className="flex items-start justify-between">
+                    <CardTitle className="text-lg leading-tight">{webinar.title}</CardTitle>
+                    {getStatusBadge(webinar.status, webinar.id)}
                   </div>
-
-                  <div className="flex items-center space-x-2">
-                    <Users className="w-4 h-4 text-gray-400" />
-                    <span>
-                      {webinar.attendees_count || 0} attendees
-                      {webinar.registrants_count && ` (${webinar.registrants_count} registered)`}
-                    </span>
-                  </div>
-
-                  {webinar.duration_minutes && (
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="space-y-2 text-sm">
                     <div className="flex items-center space-x-2">
-                      <Clock className="w-4 h-4 text-gray-400" />
-                      <span>{webinar.duration_minutes} minutes</span>
+                      <Calendar className="w-4 h-4 text-gray-400" />
+                      <span>
+                        {webinar.start_time 
+                          ? new Date(webinar.start_time).toLocaleDateString('en-US', {
+                              year: 'numeric',
+                              month: 'short',
+                              day: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })
+                          : 'Date not set'
+                        }
+                      </span>
                     </div>
-                  )}
 
-                  {webinar.host_name && (
-                    <div className="text-gray-600">
-                      Host: {webinar.host_name}
+                    <div className="flex items-center space-x-2">
+                      <Users className="w-4 h-4 text-gray-400" />
+                      <span>
+                        {webinar.attendees_count || 0} attendees
+                        {webinar.registrants_count && ` (${webinar.registrants_count} registered)`}
+                      </span>
                     </div>
-                  )}
-                </div>
 
-                <div className="pt-2">
-                  <Button variant="outline" size="sm" className="w-full flex items-center space-x-2">
-                    <ExternalLink className="w-4 h-4" />
-                    <span>View Details</span>
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+                    {webinar.duration_minutes && (
+                      <div className="flex items-center space-x-2">
+                        <Clock className="w-4 h-4 text-gray-400" />
+                        <span>{webinar.duration_minutes} minutes</span>
+                      </div>
+                    )}
+
+                    {webinar.host_name && (
+                      <div className="text-gray-600">
+                        Host: {webinar.host_name}
+                      </div>
+                    )}
+                  </div>
+
+                  {getWebinarMetrics(webinar.id)}
+
+                  <div className="pt-2">
+                    <Button variant="outline" size="sm" className="w-full flex items-center space-x-2">
+                      <ExternalLink className="w-4 h-4" />
+                      <span>View Details</span>
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+
+          <WebinarsPagination
+            pagination={pagination}
+            onPageChange={goToPage}
+            onPageSizeChange={changePageSize}
+            loading={syncing}
+          />
+        </>
       ) : (
         <Card>
           <CardContent className="text-center py-8">
@@ -200,7 +221,7 @@ const WebinarsList = ({ filters }: WebinarsListProps) => {
               }
             </p>
             {!filters.search && filters.status === 'all' && (
-              <Button onClick={syncWebinarData} disabled={syncing}>
+              <Button onClick={handleRefresh} disabled={syncing}>
                 <RefreshCw className={`w-4 h-4 mr-2 ${syncing ? 'animate-spin' : ''}`} />
                 Sync Webinars
               </Button>
