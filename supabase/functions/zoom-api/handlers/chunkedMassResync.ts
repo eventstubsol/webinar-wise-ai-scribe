@@ -1,167 +1,54 @@
 
-import { syncCompleteWebinarWithAllInstances } from './syncCompleteWebinar.ts';
+import { 
+  createResyncJob, 
+  getResyncJob, 
+  updateResyncJobProgress, 
+  processWebinarChunk, 
+  createProgressResponse, 
+  createErrorResponse, 
+  createSuccessResponse 
+} from '../utils/jobManager.ts';
+import { validateUserAndOrganization, getWebinarsForResync } from '../utils/userValidation.ts';
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
-
-interface ChunkedResyncProgress {
-  job_id: string;
-  total_webinars: number;
-  processed_webinars: number;
-  current_chunk: number;
-  total_chunks: number;
-  successful_webinars: number;
-  failed_webinars: number;
-  status: 'running' | 'completed' | 'failed';
-  errors: any[];
-}
+const CHUNK_SIZE = 3; // Reduced chunk size to prevent timeouts
 
 export async function handleChunkedMassResync(body: any, supabase: any, user: any, credentials: any) {
-  const CHUNK_SIZE = 3; // Reduced chunk size to prevent timeouts
-  
   try {
     const { chunk = 0, job_id } = body;
 
     console.log(`[chunkedMassResync] Starting chunk ${chunk}, job_id: ${job_id || 'new'}`);
 
-    // Get user's profile to fetch organization_id
-    const { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select('organization_id')
-      .eq('id', user.id)
-      .single();
-
-    if (profileError || !profile || !profile.organization_id) {
-      console.error('[chunkedMassResync] Profile/organization error:', profileError);
-      return new Response(JSON.stringify({ 
-        success: false, 
-        error: 'User profile not found or no organization assigned',
-        chunk_failed: true 
-      }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      });
-    }
-
-    const organizationId = profile.organization_id;
-    console.log(`[chunkedMassResync] Using organization_id: ${organizationId}`);
+    const organizationId = await validateUserAndOrganization(supabase, user);
     
     // Get or create job tracking record
     let progressRecord: any;
     
     if (job_id) {
       // Get existing job
-      const { data: existingJob, error: jobError } = await supabase
-        .from('mass_resync_jobs')
-        .select('*')
-        .eq('id', job_id)
-        .eq('user_id', user.id)
-        .single();
-      
-      if (jobError) {
-        console.error('[chunkedMassResync] Job fetch error:', jobError);
-        return new Response(JSON.stringify({ 
-          success: false, 
-          error: 'Job not found or access denied',
-          chunk_failed: true 
-        }), {
-          status: 404,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-        });
-      }
-      
-      progressRecord = existingJob;
+      progressRecord = await getResyncJob(supabase, job_id, user.id);
     } else {
       // Create new job - get all webinars first
-      const { data: webinars, error: webinarsError } = await supabase
-        .from('webinars')
-        .select('zoom_webinar_id, title')
-        .eq('user_id', user.id)
-        .eq('organization_id', organizationId)
-        .not('zoom_webinar_id', 'is', null)
-        .limit(100); // Limit to prevent massive jobs
-      
-      if (webinarsError) {
-        console.error('[chunkedMassResync] Webinars fetch error:', webinarsError);
-        return new Response(JSON.stringify({ 
-          success: false, 
-          error: `Failed to fetch webinars: ${webinarsError.message}`,
-          chunk_failed: true 
-        }), {
-          status: 500,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-        });
-      }
-
-      if (!webinars || webinars.length === 0) {
-        return new Response(JSON.stringify({ 
-          success: false, 
-          error: 'No webinars found to sync',
-          chunk_failed: true 
-        }), {
-          status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-        });
-      }
-
-      const totalWebinars = webinars.length;
-      const totalChunks = Math.ceil(totalWebinars / CHUNK_SIZE);
-      
-      // Create job record with proper organization_id
-      const { data: newJob, error: createError } = await supabase
-        .from('mass_resync_jobs')
-        .insert({
-          user_id: user.id,
-          organization_id: organizationId,
-          total_webinars: totalWebinars,
-          processed_webinars: 0,
-          current_chunk: 0,
-          total_chunks: totalChunks,
-          successful_webinars: 0,
-          failed_webinars: 0,
-          status: 'running',
-          errors: [],
-          webinar_list: webinars,
-          started_at: new Date().toISOString()
-        })
-        .select()
-        .single();
-      
-      if (createError) {
-        console.error('[chunkedMassResync] Job creation error:', createError);
-        return new Response(JSON.stringify({ 
-          success: false, 
-          error: `Failed to create job: ${createError.message}`,
-          chunk_failed: true 
-        }), {
-          status: 500,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-        });
-      }
-      
-      progressRecord = newJob;
+      const webinars = await getWebinarsForResync(supabase, user.id, organizationId);
+      progressRecord = await createResyncJob(supabase, user, organizationId, webinars, CHUNK_SIZE);
     }
 
     // Validate chunk bounds
     if (chunk >= progressRecord.total_chunks) {
-      return new Response(JSON.stringify({
-        success: true,
+      const progress = createProgressResponse(
+        progressRecord.id,
+        progressRecord.total_chunks,
+        progressRecord.total_chunks,
+        progressRecord.processed_webinars,
+        progressRecord.total_webinars,
+        progressRecord.successful_webinars,
+        progressRecord.failed_webinars,
+        true
+      );
+
+      return createSuccessResponse({
         job_id: progressRecord.id,
         chunk_completed: true,
-        progress: {
-          current_chunk: progressRecord.total_chunks,
-          total_chunks: progressRecord.total_chunks,
-          processed_webinars: progressRecord.processed_webinars,
-          total_webinars: progressRecord.total_webinars,
-          successful_webinars: progressRecord.successful_webinars,
-          failed_webinars: progressRecord.failed_webinars,
-          is_completed: true,
-          progress_percentage: 100
-        }
-      }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        progress: progress
       });
     }
 
@@ -174,59 +61,12 @@ export async function handleChunkedMassResync(body: any, supabase: any, user: an
     console.log(`[chunkedMassResync] Processing chunk ${chunk + 1}/${progressRecord.total_chunks}: ${currentChunkWebinars.length} webinars`);
 
     // Process current chunk with enhanced error handling
-    const chunkResults = {
-      successful: 0,
-      failed: 0,
-      errors: [],
-      processed_count: 0,
-      total_participants_synced: 0
-    };
-
-    for (const webinar of currentChunkWebinars) {
-      try {
-        console.log(`[chunkedMassResync] Processing webinar: ${webinar.title} (${webinar.zoom_webinar_id})`);
-        
-        // Clear any existing participant data for this webinar to avoid duplicates
-        await supabase
-          .from('zoom_webinar_instance_participants')
-          .delete()
-          .eq('user_id', user.id)
-          .eq('webinar_id', webinar.zoom_webinar_id);
-        
-        // Add timeout protection for individual webinar sync
-        const syncPromise = syncCompleteWebinarWithAllInstances(
-          webinar.zoom_webinar_id,
-          credentials,
-          supabase,
-          user
-        );
-        
-        const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Webinar sync timeout')), 45000) // Increased timeout
-        );
-        
-        const webinarResult = await Promise.race([syncPromise, timeoutPromise]);
-        
-        chunkResults.successful++;
-        chunkResults.total_participants_synced += (webinarResult.total_registrants + webinarResult.total_attendees);
-        
-        console.log(`[chunkedMassResync] Successfully synced webinar ${webinar.zoom_webinar_id}: ${webinarResult.total_registrants + webinarResult.total_attendees} participants`);
-        
-        // Add delay between webinars to prevent overwhelming
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        
-      } catch (webinarError) {
-        console.error(`[chunkedMassResync] Error processing webinar ${webinar.zoom_webinar_id}:`, webinarError);
-        chunkResults.failed++;
-        chunkResults.errors.push({
-          webinar_id: webinar.zoom_webinar_id,
-          topic: webinar.title,
-          error: webinarError.message || 'Unknown error'
-        });
-      }
-      
-      chunkResults.processed_count++;
-    }
+    const chunkResults = await processWebinarChunk(
+      currentChunkWebinars,
+      credentials,
+      supabase,
+      user
+    );
 
     // Update job progress
     const newProcessedCount = progressRecord.processed_webinars + chunkResults.processed_count;
@@ -237,58 +77,39 @@ export async function handleChunkedMassResync(body: any, supabase: any, user: an
     const isCompleted = newProcessedCount >= progressRecord.total_webinars;
     const newStatus = isCompleted ? 'completed' : 'running';
 
-    const { error: updateError } = await supabase
-      .from('mass_resync_jobs')
-      .update({
-        processed_webinars: newProcessedCount,
-        current_chunk: chunk + 1,
-        successful_webinars: newSuccessfulCount,
-        failed_webinars: newFailedCount,
-        status: newStatus,
-        errors: allErrors,
-        completed_at: isCompleted ? new Date().toISOString() : null,
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', progressRecord.id);
-
-    if (updateError) {
-      console.error('[chunkedMassResync] Failed to update job progress:', updateError);
-    }
+    await updateResyncJobProgress(supabase, progressRecord.id, {
+      processed_webinars: newProcessedCount,
+      current_chunk: chunk + 1,
+      successful_webinars: newSuccessfulCount,
+      failed_webinars: newFailedCount,
+      errors: allErrors,
+      status: newStatus,
+      ...(isCompleted && { completed_at: new Date().toISOString() })
+    });
 
     console.log(`[chunkedMassResync] Chunk ${chunk + 1} completed: ${chunkResults.successful} successful, ${chunkResults.failed} failed, ${chunkResults.total_participants_synced} participants synced`);
 
-    // Return chunk results with proper CORS headers
-    return new Response(JSON.stringify({
-      success: true,
+    const progress = createProgressResponse(
+      progressRecord.id,
+      chunk + 1,
+      progressRecord.total_chunks,
+      newProcessedCount,
+      progressRecord.total_webinars,
+      newSuccessfulCount,
+      newFailedCount,
+      isCompleted
+    );
+
+    return createSuccessResponse({
       job_id: progressRecord.id,
       chunk_completed: true,
       chunk_results: chunkResults,
-      progress: {
-        job_id: progressRecord.id,
-        current_chunk: chunk + 1,
-        total_chunks: progressRecord.total_chunks,
-        processed_webinars: newProcessedCount,
-        total_webinars: progressRecord.total_webinars,
-        successful_webinars: newSuccessfulCount,
-        failed_webinars: newFailedCount,
-        is_completed: isCompleted,
-        progress_percentage: Math.round((newProcessedCount / progressRecord.total_webinars) * 100)
-      }
-    }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      progress: progress
     });
 
   } catch (error) {
     console.error('[chunkedMassResync] Critical error:', error);
-    
-    return new Response(JSON.stringify({
-      success: false,
-      error: error.message || 'Unknown error occurred',
-      chunk_failed: true
-    }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-    });
+    return createErrorResponse(error.message || 'Unknown error occurred', true);
   }
 }
 
@@ -297,49 +118,15 @@ export async function getChunkedResyncStatus(body: any, supabase: any, user: any
     const { job_id } = body;
     
     if (!job_id) {
-      return new Response(JSON.stringify({
-        success: false,
-        error: 'job_id is required'
-      }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      });
+      return createErrorResponse('job_id is required');
     }
 
-    const { data: job, error } = await supabase
-      .from('mass_resync_jobs')
-      .select('*')
-      .eq('id', job_id)
-      .eq('user_id', user.id)
-      .single();
+    const job = await getResyncJob(supabase, job_id, user.id);
 
-    if (error) {
-      console.error('[getChunkedResyncStatus] Error:', error);
-      return new Response(JSON.stringify({
-        success: false,
-        error: 'Job not found or access denied'
-      }), {
-        status: 404,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      });
-    }
-
-    return new Response(JSON.stringify({
-      success: true,
-      job: job
-    }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-    });
+    return createSuccessResponse({ job: job });
 
   } catch (error) {
     console.error('[getChunkedResyncStatus] Error:', error);
-    
-    return new Response(JSON.stringify({
-      success: false,
-      error: error.message || 'Unknown error occurred'
-    }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-    });
+    return createErrorResponse(error.message || 'Unknown error occurred');
   }
 }
