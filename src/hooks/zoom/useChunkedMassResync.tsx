@@ -16,14 +16,6 @@ interface ChunkedResyncProgress {
   progress_percentage: number;
 }
 
-interface ChunkResult {
-  successful: number;
-  failed: number;
-  errors: any[];
-  processed_count: number;
-  total_participants_synced: number;
-}
-
 export function useChunkedMassResync() {
   const { user } = useAuth();
   const [isResyncing, setIsResyncing] = useState(false);
@@ -33,6 +25,8 @@ export function useChunkedMassResync() {
   
   const processNextChunk = useCallback(async (jobId: string, chunkIndex: number): Promise<boolean> => {
     try {
+      console.log(`[useChunkedMassResync] Processing chunk ${chunkIndex + 1}...`);
+      
       const { data, error: chunkError } = await supabase.functions.invoke('zoom-api', {
         body: { 
           action: 'chunked_mass_resync',
@@ -42,19 +36,22 @@ export function useChunkedMassResync() {
       });
       
       if (chunkError) {
-        throw new Error(chunkError.message);
+        console.error('[useChunkedMassResync] Chunk error:', chunkError);
+        throw new Error(chunkError.message || 'Failed to process chunk');
       }
       
-      if (data.error) {
-        throw new Error(data.error);
+      if (!data.success) {
+        throw new Error(data.error || 'Chunk processing failed');
       }
       
       // Update progress
-      setProgress(data.progress);
+      if (data.progress) {
+        setProgress(data.progress);
+      }
       
       console.log(`[useChunkedMassResync] Chunk ${chunkIndex + 1} completed:`, data.chunk_results);
       
-      return data.progress.is_completed;
+      return data.progress?.is_completed || false;
     } catch (err) {
       console.error(`[useChunkedMassResync] Chunk ${chunkIndex} error:`, err);
       throw err;
@@ -89,16 +86,35 @@ export function useChunkedMassResync() {
       });
       
       if (firstChunkError) {
-        throw new Error(firstChunkError.message);
+        throw new Error(firstChunkError.message || 'Failed to start chunked resync');
       }
       
-      if (firstChunkData.error) {
-        throw new Error(firstChunkData.error);
+      if (!firstChunkData.success) {
+        throw new Error(firstChunkData.error || 'Failed to start chunked resync');
       }
       
       const jobId = firstChunkData.job_id;
       let currentProgress = firstChunkData.progress;
       setProgress(currentProgress);
+      
+      // If completed in first chunk, we're done
+      if (currentProgress.is_completed) {
+        const finalResults = {
+          total_webinars: currentProgress.total_webinars,
+          successful_webinars: currentProgress.successful_webinars,
+          failed_webinars: currentProgress.failed_webinars,
+          errors: []
+        };
+        
+        setResults(finalResults);
+        
+        toast({
+          title: "Chunked Mass Re-sync Completed",
+          description: `Successfully processed ${finalResults.successful_webinars}/${finalResults.total_webinars} webinars.`,
+        });
+        
+        return;
+      }
       
       // Continue processing chunks until completed
       let chunkIndex = 1;
@@ -115,6 +131,11 @@ export function useChunkedMassResync() {
         }
         
         chunkIndex++;
+        
+        // Safety check to prevent infinite loops
+        if (chunkIndex > 50) {
+          throw new Error('Maximum chunk limit reached');
+        }
       }
       
       // Get final results
@@ -125,7 +146,7 @@ export function useChunkedMassResync() {
         }
       });
       
-      if (!statusError && statusData.success) {
+      if (!statusError && statusData?.success && statusData.job) {
         const finalResults = {
           total_webinars: statusData.job.total_webinars,
           successful_webinars: statusData.job.successful_webinars,
@@ -139,17 +160,33 @@ export function useChunkedMassResync() {
           title: "Chunked Mass Re-sync Completed",
           description: `Successfully processed ${finalResults.successful_webinars}/${finalResults.total_webinars} webinars.`,
         });
+      } else {
+        // Fallback if status fetch fails
+        const fallbackResults = {
+          total_webinars: currentProgress.total_webinars,
+          successful_webinars: currentProgress.successful_webinars,
+          failed_webinars: currentProgress.failed_webinars,
+          errors: []
+        };
+        
+        setResults(fallbackResults);
+        
+        toast({
+          title: "Chunked Mass Re-sync Completed",
+          description: `Processing completed. Check results for details.`,
+        });
       }
       
       console.log('[useChunkedMassResync] Chunked mass re-sync completed successfully');
       
     } catch (err) {
       console.error('[useChunkedMassResync] Error:', err);
-      setError(err instanceof Error ? err.message : 'Unknown error occurred');
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred';
+      setError(errorMessage);
       
       toast({
         title: "Chunked Mass Re-sync Failed",
-        description: err instanceof Error ? err.message : "Failed to complete chunked mass re-sync",
+        description: errorMessage,
         variant: "destructive",
       });
     } finally {

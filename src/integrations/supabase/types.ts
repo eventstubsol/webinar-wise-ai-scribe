@@ -202,6 +202,63 @@ export type Database = {
         }
         Relationships: []
       }
+      mass_resync_jobs: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          current_chunk: number
+          errors: Json | null
+          failed_webinars: number
+          id: string
+          organization_id: string
+          processed_webinars: number
+          started_at: string | null
+          status: string
+          successful_webinars: number
+          total_chunks: number
+          total_webinars: number
+          updated_at: string | null
+          user_id: string
+          webinar_list: Json | null
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          current_chunk?: number
+          errors?: Json | null
+          failed_webinars?: number
+          id?: string
+          organization_id: string
+          processed_webinars?: number
+          started_at?: string | null
+          status?: string
+          successful_webinars?: number
+          total_chunks?: number
+          total_webinars?: number
+          updated_at?: string | null
+          user_id: string
+          webinar_list?: Json | null
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          current_chunk?: number
+          errors?: Json | null
+          failed_webinars?: number
+          id?: string
+          organization_id?: string
+          processed_webinars?: number
+          started_at?: string | null
+          status?: string
+          successful_webinars?: number
+          total_chunks?: number
+          total_webinars?: number
+          updated_at?: string | null
+          user_id?: string
+          webinar_list?: Json | null
+        }
+        Relationships: []
+      }
       organizations: {
         Row: {
           created_at: string
