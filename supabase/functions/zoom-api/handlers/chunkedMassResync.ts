@@ -33,8 +33,8 @@ export async function handleChunkedMassResync(body: any, supabase: any, user: an
       .eq('id', user.id)
       .single();
 
-    if (profileError || !profile) {
-      console.error('[chunkedMassResync] Profile fetch error:', profileError);
+    if (profileError || !profile || !profile.organization_id) {
+      console.error('[chunkedMassResync] Profile/organization error:', profileError);
       return new Response(JSON.stringify({ 
         success: false, 
         error: 'User profile not found or no organization assigned',
@@ -46,19 +46,8 @@ export async function handleChunkedMassResync(body: any, supabase: any, user: an
     }
 
     const organizationId = profile.organization_id;
+    console.log(`[chunkedMassResync] Using organization_id: ${organizationId}`);
     
-    if (!organizationId) {
-      console.error('[chunkedMassResync] No organization_id found for user:', user.id);
-      return new Response(JSON.stringify({ 
-        success: false, 
-        error: 'User has no organization assigned',
-        chunk_failed: true 
-      }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      });
-    }
-
     // Get or create job tracking record
     let progressRecord: any;
     
@@ -125,7 +114,7 @@ export async function handleChunkedMassResync(body: any, supabase: any, user: an
         .from('mass_resync_jobs')
         .insert({
           user_id: user.id,
-          organization_id: organizationId, // Use the fetched organization_id
+          organization_id: organizationId,
           total_webinars: totalWebinars,
           processed_webinars: 0,
           current_chunk: 0,
@@ -184,7 +173,7 @@ export async function handleChunkedMassResync(body: any, supabase: any, user: an
 
     console.log(`[chunkedMassResync] Processing chunk ${chunk + 1}/${progressRecord.total_chunks}: ${currentChunkWebinars.length} webinars`);
 
-    // Process current chunk with timeout protection
+    // Process current chunk with enhanced error handling
     const chunkResults = {
       successful: 0,
       failed: 0,
@@ -197,6 +186,13 @@ export async function handleChunkedMassResync(body: any, supabase: any, user: an
       try {
         console.log(`[chunkedMassResync] Processing webinar: ${webinar.title} (${webinar.zoom_webinar_id})`);
         
+        // Clear any existing participant data for this webinar to avoid duplicates
+        await supabase
+          .from('zoom_webinar_instance_participants')
+          .delete()
+          .eq('user_id', user.id)
+          .eq('webinar_id', webinar.zoom_webinar_id);
+        
         // Add timeout protection for individual webinar sync
         const syncPromise = syncCompleteWebinarWithAllInstances(
           webinar.zoom_webinar_id,
@@ -206,7 +202,7 @@ export async function handleChunkedMassResync(body: any, supabase: any, user: an
         );
         
         const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Webinar sync timeout')), 30000)
+          setTimeout(() => reject(new Error('Webinar sync timeout')), 45000) // Increased timeout
         );
         
         const webinarResult = await Promise.race([syncPromise, timeoutPromise]);
@@ -214,8 +210,10 @@ export async function handleChunkedMassResync(body: any, supabase: any, user: an
         chunkResults.successful++;
         chunkResults.total_participants_synced += (webinarResult.total_registrants + webinarResult.total_attendees);
         
-        // Add small delay between webinars to prevent overwhelming
-        await new Promise(resolve => setTimeout(resolve, 500));
+        console.log(`[chunkedMassResync] Successfully synced webinar ${webinar.zoom_webinar_id}: ${webinarResult.total_registrants + webinarResult.total_attendees} participants`);
+        
+        // Add delay between webinars to prevent overwhelming
+        await new Promise(resolve => setTimeout(resolve, 1000));
         
       } catch (webinarError) {
         console.error(`[chunkedMassResync] Error processing webinar ${webinar.zoom_webinar_id}:`, webinarError);
@@ -223,7 +221,7 @@ export async function handleChunkedMassResync(body: any, supabase: any, user: an
         chunkResults.errors.push({
           webinar_id: webinar.zoom_webinar_id,
           topic: webinar.title,
-          error: webinarError.message
+          error: webinarError.message || 'Unknown error'
         });
       }
       
@@ -256,6 +254,8 @@ export async function handleChunkedMassResync(body: any, supabase: any, user: an
     if (updateError) {
       console.error('[chunkedMassResync] Failed to update job progress:', updateError);
     }
+
+    console.log(`[chunkedMassResync] Chunk ${chunk + 1} completed: ${chunkResults.successful} successful, ${chunkResults.failed} failed, ${chunkResults.total_participants_synced} participants synced`);
 
     // Return chunk results with proper CORS headers
     return new Response(JSON.stringify({
