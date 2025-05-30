@@ -10,6 +10,11 @@ import { useMassResync } from '@/hooks/zoom/useMassResync';
 export function MassResyncDialog() {
   const { isResyncing, progress, results, error, startMassResync } = useMassResync();
   
+  // Calculate progress percentage if progress is an object
+  const progressValue = typeof progress === 'object' && progress ? 
+    Math.round((progress.processedWebinars / progress.totalWebinars) * 100) : 
+    (typeof progress === 'number' ? progress : 0);
+  
   return (
     <Dialog>
       <DialogTrigger asChild>
@@ -40,9 +45,19 @@ export function MassResyncDialog() {
           
           {isResyncing && (
             <div className="space-y-3">
-              <Progress value={progress} className="w-full" />
+              <Progress value={progressValue} className="w-full" />
               <p className="text-sm text-muted-foreground">
-                Processing webinars... {progress}% complete
+                {typeof progress === 'object' && progress ? (
+                  <>
+                    Processing webinars... {progress.processedWebinars}/{progress.totalWebinars} 
+                    ({progressValue}% complete)
+                    {progress.currentWebinar && (
+                      <><br />Current: {progress.currentWebinar}</>
+                    )}
+                  </>
+                ) : (
+                  `Processing webinars... ${progressValue}% complete`
+                )}
               </p>
             </div>
           )}
