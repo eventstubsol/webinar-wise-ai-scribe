@@ -67,10 +67,18 @@ export async function storeAttendees(
       mapAttendeeToParticipant(attendee, userId, instanceId, webinarId, i + index)
     );
     
-    // Store in attendees table using UPSERT
-    const attendeesToUpsert = batch.map((attendee: any, index: number) => 
-      mapAttendeeToAttendeeRecord(attendee, organizationId, internalWebinarId, instanceId, i + index)
-    );
+    // Store in attendees table using UPSERT with proper data validation
+    const attendeesToUpsert = batch.map((attendee: any, index: number) => {
+      const mappedAttendee = mapAttendeeToAttendeeRecord(attendee, organizationId, internalWebinarId, instanceId, i + index);
+      
+      // Validate engagement_score to prevent numeric overflow
+      if (mappedAttendee.engagement_score > 9.99) {
+        console.warn(`[participantStorage] Capping engagement_score from ${mappedAttendee.engagement_score} to 9.99 for attendee ${mappedAttendee.name}`);
+        mappedAttendee.engagement_score = 9.99;
+      }
+      
+      return mappedAttendee;
+    });
     
     // Insert into zoom_webinar_instance_participants
     const participantsResult = await supabase
@@ -93,7 +101,7 @@ export async function storeAttendees(
       console.error(`[participantStorage] Error upserting attendees batch ${i}-${i + batch.length}:`, attendeesResult.error);
       console.error(`[participantStorage] Attendees error details:`, JSON.stringify(attendeesResult.error, null, 2));
       // Log the problematic data for debugging
-      console.error(`[participantStorage] Problematic attendee data:`, JSON.stringify(attendeesToUpsert.slice(0, 3), null, 2));
+      console.error(`[participantStorage] Problematic attendee data sample:`, JSON.stringify(attendeesToUpsert.slice(0, 3), null, 2));
     } else {
       console.log(`[participantStorage] Successfully upserted attendees batch ${i + 1}-${i + batch.length}`);
     }

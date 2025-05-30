@@ -32,21 +32,51 @@ export async function syncInstanceParticipants(webinarId: string, instanceData: 
   // Store the webinar instance first
   const dbInstance = await storeWebinarInstance(supabase, user.id, webinarId, instanceData);
   
-  // Get registrants and attendees with pagination
-  const [registrants, attendees] = await Promise.all([
-    fetchAllPaginatedData(`https://api.zoom.us/v2/webinars/${webinarId}/registrants?occurrence_id=${instanceData.uuid}`, headers),
-    fetchAllPaginatedData(`https://api.zoom.us/v2/past_webinars/${instanceData.uuid}/participants`, headers)
-  ]);
+  let registrants = [];
+  let attendees = [];
+  let errors = [];
   
-  console.log(`[syncInstanceParticipants] Found ${registrants.length} registrants and ${attendees.length} attendees for instance ${instanceData.uuid}`);
+  try {
+    // For recurring webinar instances, use occurrence_id parameter for registrants
+    console.log(`[syncInstanceParticipants] Fetching registrants for instance ${instanceData.uuid}`);
+    registrants = await fetchAllPaginatedData(`https://api.zoom.us/v2/webinars/${webinarId}/registrants?occurrence_id=${instanceData.uuid}`, headers);
+    console.log(`[syncInstanceParticipants] Found ${registrants.length} registrants for instance ${instanceData.uuid}`);
+  } catch (error) {
+    console.error(`[syncInstanceParticipants] Error fetching registrants for instance ${instanceData.uuid}:`, error);
+    errors.push(`Registrants fetch failed: ${error.message}`);
+  }
+  
+  try {
+    // For past webinar instances, use the instance UUID directly as the webinar ID in the participants endpoint
+    console.log(`[syncInstanceParticipants] Fetching attendees for instance ${instanceData.uuid}`);
+    attendees = await fetchAllPaginatedData(`https://api.zoom.us/v2/past_webinars/${instanceData.uuid}/participants`, headers);
+    console.log(`[syncInstanceParticipants] Found ${attendees.length} attendees for instance ${instanceData.uuid}`);
+  } catch (error) {
+    console.error(`[syncInstanceParticipants] Error fetching attendees for instance ${instanceData.uuid}:`, error);
+    errors.push(`Attendees fetch failed: ${error.message}`);
+    
+    // Log additional context for debugging
+    console.log(`[syncInstanceParticipants] Attendee data may not be available for instance ${instanceData.uuid}. This is normal for instances older than 30 days or if the instance hasn't occurred yet.`);
+  }
   
   // Store participants using batch operations
-  const totalStored = await storeParticipantsInBatches(supabase, user.id, instanceData.uuid, webinarId, registrants, attendees);
+  let totalStored = 0;
+  
+  if (registrants.length > 0 || attendees.length > 0) {
+    try {
+      totalStored = await storeParticipantsInBatches(supabase, user.id, instanceData.uuid, webinarId, registrants, attendees);
+    } catch (storageError) {
+      console.error(`[syncInstanceParticipants] Error storing participants for instance ${instanceData.uuid}:`, storageError);
+      errors.push(`Storage failed: ${storageError.message}`);
+    }
+  }
   
   return {
     registrants_count: registrants.length,
     attendees_count: attendees.length,
     total_count: registrants.length + attendees.length,
-    total_stored: totalStored
+    total_stored: totalStored,
+    errors: errors,
+    success: errors.length === 0 || totalStored > 0
   };
 }
