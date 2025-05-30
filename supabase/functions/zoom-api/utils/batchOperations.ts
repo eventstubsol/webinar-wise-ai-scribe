@@ -1,5 +1,6 @@
 import { storeAttendeesWithHistoricalPreservation, storeRegistrantsWithHistoricalPreservation } from './historicalParticipantStorage.ts';
 import { storeWebinarInstance } from './webinarInstanceStorage.ts';
+import { updateWebinarAttendeeCounts } from './attendeeCountUpdater.ts';
 
 export async function storeParticipantsInBatches(
   supabase: any, 
@@ -45,9 +46,6 @@ export async function storeParticipantsInBatches(
     const internalWebinarId = webinarRecord.id;
     console.log(`[batchOperations] Found internal webinar ID: ${internalWebinarId}`);
 
-    // NO MORE CLEARING EXISTING DATA - We now preserve historical data
-    console.log(`[batchOperations] Historical preservation mode: existing data will be preserved`);
-    
     // Store registrants with historical preservation
     if (registrants.length > 0) {
       console.log(`[batchOperations] Storing registrants with historical preservation...`);
@@ -80,22 +78,10 @@ export async function storeParticipantsInBatches(
       console.log(`[batchOperations] Attendees processed: ${attendeesStored} new/updated records`);
     }
 
-    // Update total count in webinars table (only count current/active records)
-    const { data: currentAttendees } = await supabase
-      .from('attendees')
-      .select('id')
-      .eq('webinar_id', internalWebinarId)
-      .eq('is_historical', false);
-    
-    const currentAttendeesCount = currentAttendees?.length || 0;
-    
-    await supabase
-      .from('webinars')
-      .update({ 
-        attendees_count: currentAttendeesCount,
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', internalWebinarId);
+    // **NEW: Update webinar attendee and registrant counts**
+    console.log(`[batchOperations] Updating webinar attendee and registrant counts...`);
+    const updatedCounts = await updateWebinarAttendeeCounts(supabase, internalWebinarId);
+    console.log(`[batchOperations] Updated webinar counts - Attendees: ${updatedCounts.attendees_count}, Registrants: ${updatedCounts.registrants_count}`);
 
     console.log(`[batchOperations] Successfully processed participants with historical preservation for instance ${instanceId}`);
     
@@ -108,9 +94,10 @@ export async function storeParticipantsInBatches(
     
     console.log(`[batchOperations] Historical preservation summary:`);
     console.log(`  - New/updated records: ${totalStored}`);
-    console.log(`  - Current active attendees: ${currentAttendeesCount}`);
+    console.log(`  - Current active attendees: ${updatedCounts.attendees_count}`);
+    console.log(`  - Current registrants: ${updatedCounts.registrants_count}`);
     console.log(`  - Historical records preserved: ${totalHistorical?.length || 0}`);
-    console.log(`  - Total records in database: ${currentAttendeesCount + (totalHistorical?.length || 0)}`);
+    console.log(`  - Total records in database: ${updatedCounts.attendees_count + (totalHistorical?.length || 0)}`);
     console.log(`  - Data preservation: ENABLED - Historical data will persist beyond Zoom's 90-day window`);
     
     return totalStored;

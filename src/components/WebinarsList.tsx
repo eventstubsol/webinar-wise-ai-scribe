@@ -1,10 +1,10 @@
-
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Calendar, Users, Clock, RefreshCw, ExternalLink } from "lucide-react";
+import { Calendar, Users, Clock, RefreshCw, ExternalLink, AlertCircle } from "lucide-react";
 import { usePaginatedWebinarData } from "@/hooks/usePaginatedWebinarData";
 import { useZoomIntegration } from "@/hooks/useZoomIntegration";
+import { useAttendeeCountFix } from "@/hooks/useAttendeeCountFix";
 import { WebinarStatus } from "@/types/sync";
 import { useRealtimeWebinars } from "@/hooks/useRealtimeWebinars";
 import WebinarsPagination from "./WebinarsPagination";
@@ -20,6 +20,7 @@ interface WebinarsListProps {
 const WebinarsList = ({ filters }: WebinarsListProps) => {
   const { webinars, loading, pagination, goToPage, changePageSize, refreshData } = usePaginatedWebinarData(20);
   const { syncing, syncWebinarData } = useZoomIntegration();
+  const { fixing, fixAllAttendeeCounts } = useAttendeeCountFix();
   const { getWebinarStatus } = useRealtimeWebinars();
 
   const filteredWebinars = webinars.filter((webinar) => {
@@ -37,6 +38,9 @@ const WebinarsList = ({ filters }: WebinarsListProps) => {
 
     return true;
   });
+
+  // Check if any webinar has 0 attendees/registrants but might have data
+  const hasZeroCounts = webinars.some(w => w.attendees_count === 0 && w.registrants_count === 0);
 
   const getStatusBadge = (status: WebinarStatus, webinarId: string) => {
     const liveStatus = getWebinarStatus(webinarId);
@@ -106,6 +110,11 @@ const WebinarsList = ({ filters }: WebinarsListProps) => {
     await refreshData();
   };
 
+  const handleFixCounts = async () => {
+    await fixAllAttendeeCounts();
+    await refreshData();
+  };
+
   if (loading) {
     return (
       <Card>
@@ -126,17 +135,45 @@ const WebinarsList = ({ filters }: WebinarsListProps) => {
             ` (${filteredWebinars.length} filtered)`
           }
         </h2>
-        <Button 
-          onClick={handleRefresh}
-          disabled={syncing}
-          variant="outline"
-          size="sm"
-          className="flex items-center space-x-2"
-        >
-          <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
-          <span>Sync from Zoom</span>
-        </Button>
+        <div className="flex items-center space-x-2">
+          {hasZeroCounts && (
+            <Button 
+              onClick={handleFixCounts}
+              disabled={fixing}
+              variant="outline"
+              size="sm"
+              className="flex items-center space-x-2 text-orange-600 border-orange-200 hover:bg-orange-50"
+            >
+              <AlertCircle className={`w-4 h-4 ${fixing ? 'animate-spin' : ''}`} />
+              <span>Fix Counts</span>
+            </Button>
+          )}
+          <Button 
+            onClick={handleRefresh}
+            disabled={syncing}
+            variant="outline"
+            size="sm"
+            className="flex items-center space-x-2"
+          >
+            <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
+            <span>Sync from Zoom</span>
+          </Button>
+        </div>
       </div>
+
+      {hasZeroCounts && (
+        <Card className="border-orange-200 bg-orange-50">
+          <CardContent className="pt-6">
+            <div className="flex items-center space-x-2 text-orange-800">
+              <AlertCircle className="w-5 h-5" />
+              <div>
+                <p className="font-medium">Attendee counts appear to be missing</p>
+                <p className="text-sm text-orange-700">Click "Fix Counts" to recalculate attendee and registrant numbers from your data.</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {filteredWebinars.length > 0 ? (
         <>
