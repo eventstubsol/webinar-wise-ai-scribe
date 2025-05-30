@@ -14,7 +14,6 @@ interface WebinarData {
   attendees_count: number | null;
   registrants_count: number | null;
   status: WebinarStatus;
-  zoom_webinar_id: string | null;
 }
 
 interface AttendeeData {
@@ -24,11 +23,9 @@ interface AttendeeData {
   join_time: string | null;
   duration_minutes: number | null;
   engagement_score: number | null;
-  webinar_id: string;
-  webinar_title?: string;
 }
 
-export const useWebinarData = (selectedWebinarId?: string) => {
+export const useWebinarData = () => {
   const { user } = useAuth();
   const [webinars, setWebinars] = useState<WebinarData[]>([]);
   const [attendees, setAttendees] = useState<AttendeeData[]>([]);
@@ -48,9 +45,9 @@ export const useWebinarData = (selectedWebinarId?: string) => {
       // Fetch webinars with status column
       const { data: webinarsData, error: webinarsError } = await supabase
         .from('webinars')
-        .select('id, title, host_name, start_time, end_time, duration_minutes, attendees_count, registrants_count, status, zoom_webinar_id')
+        .select('id, title, host_name, start_time, end_time, duration_minutes, attendees_count, registrants_count, status')
         .order('created_at', { ascending: false })
-        .limit(50);
+        .limit(20);
 
       if (webinarsError) {
         console.error('Error fetching webinars:', webinarsError);
@@ -67,53 +64,35 @@ export const useWebinarData = (selectedWebinarId?: string) => {
         attendees_count: w.attendees_count || 0,
         registrants_count: w.registrants_count || 0,
         status: w.status as WebinarStatus,
-        zoom_webinar_id: w.zoom_webinar_id,
       }));
 
       setWebinars(transformedWebinars);
 
-      // Fetch attendees based on selection
-      let attendeesQuery = supabase
-        .from('attendees')
-        .select(`
-          id, 
-          name, 
-          email, 
-          join_time, 
-          duration_minutes, 
-          engagement_score, 
-          webinar_id,
-          webinars!inner(title)
-        `)
-        .order('engagement_score', { ascending: false, nullsFirst: false })
-        .limit(100);
+      // If we have webinars, fetch attendees for the most recent one
+      if (transformedWebinars.length > 0) {
+        const { data: attendeesData, error: attendeesError } = await supabase
+          .from('attendees')
+          .select('id, name, email, join_time, duration_minutes, engagement_score')
+          .eq('webinar_id', transformedWebinars[0].id)
+          .order('engagement_score', { ascending: false, nullsFirst: false })
+          .limit(50);
 
-      // If specific webinar selected, filter by it, otherwise get attendees from recent webinars
-      if (selectedWebinarId) {
-        attendeesQuery = attendeesQuery.eq('webinar_id', selectedWebinarId);
-      } else if (transformedWebinars.length > 0) {
-        // Get attendees from the 5 most recent webinars
-        const recentWebinarIds = transformedWebinars.slice(0, 5).map(w => w.id);
-        attendeesQuery = attendeesQuery.in('webinar_id', recentWebinarIds);
-      }
-
-      const { data: attendeesData, error: attendeesError } = await attendeesQuery;
-
-      if (attendeesError) {
-        console.error('Error fetching attendees:', attendeesError);
-        setAttendees([]);
+        if (attendeesError) {
+          console.error('Error fetching attendees:', attendeesError);
+          setAttendees([]);
+        } else {
+          const transformedAttendees = (attendeesData || []).map(a => ({
+            id: a.id,
+            name: a.name || 'Unknown Attendee',
+            email: a.email || '',
+            join_time: a.join_time,
+            duration_minutes: a.duration_minutes || 0,
+            engagement_score: a.engagement_score || 0,
+          }));
+          setAttendees(transformedAttendees);
+        }
       } else {
-        const transformedAttendees = (attendeesData || []).map(a => ({
-          id: a.id,
-          name: a.name || 'Unknown Attendee',
-          email: a.email || '',
-          join_time: a.join_time,
-          duration_minutes: a.duration_minutes || 0,
-          engagement_score: a.engagement_score || 0,
-          webinar_id: a.webinar_id,
-          webinar_title: a.webinars?.title || 'Unknown Webinar',
-        }));
-        setAttendees(transformedAttendees);
+        setAttendees([]);
       }
     } catch (err: any) {
       const errorMessage = err.message || 'Failed to fetch webinar data';
@@ -124,46 +103,9 @@ export const useWebinarData = (selectedWebinarId?: string) => {
     }
   };
 
-  const refreshAttendeeData = async (webinarId?: string) => {
-    try {
-      // Trigger a fresh sync for specific webinar
-      if (webinarId && user) {
-        const { data: webinar } = await supabase
-          .from('webinars')
-          .select('zoom_webinar_id, organization_id')
-          .eq('id', webinarId)
-          .single();
-
-        if (webinar?.zoom_webinar_id) {
-          const { data: profile } = await supabase
-            .from('profiles')
-            .select('organization_id')
-            .eq('id', user.id)
-            .single();
-
-          if (profile?.organization_id) {
-            await supabase.functions.invoke('zoom-sync-participants', {
-              body: {
-                organization_id: profile.organization_id,
-                user_id: user.id,
-                webinar_id: webinarId,
-                zoom_webinar_id: webinar.zoom_webinar_id
-              }
-            });
-          }
-        }
-      }
-      
-      // Refresh the data
-      await fetchData();
-    } catch (error) {
-      console.error('Error refreshing attendee data:', error);
-    }
-  };
-
   useEffect(() => {
     fetchData();
-  }, [user, selectedWebinarId]);
+  }, [user]);
 
   const refreshData = async () => {
     setLoading(true);
@@ -176,10 +118,7 @@ export const useWebinarData = (selectedWebinarId?: string) => {
     loading, 
     error, 
     refreshData,
-    refreshAttendeeData,
     totalWebinars: webinars.length,
-    totalAttendees: attendees.length,
-    webinarsWithAttendees: webinars.filter(w => (w.attendees_count || 0) > 0).length,
-    webinarsWithoutAttendees: webinars.filter(w => (w.attendees_count || 0) === 0).length
+    totalAttendees: attendees.length
   };
 };

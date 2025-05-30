@@ -1,3 +1,4 @@
+
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
@@ -9,35 +10,14 @@ const corsHeaders = {
 interface ZoomParticipant {
   id: string
   user_id: string
-  user_uuid?: string
   name: string
   user_email: string
   join_time: string
   leave_time: string
   duration: number
-  attentiveness_score?: string
-  failover?: boolean
-  status?: string
 }
 
-// Enhanced recovery statistics tracking with detailed error categorization
-interface RecoveryStats {
-  total_api_calls: number
-  total_pages_processed: number
-  participants_found: number
-  participants_after_dedup: number
-  participants_stored: number
-  bots_filtered: number
-  invalid_emails_filtered: number
-  validation_errors: number
-  database_errors: number
-  constraint_violations: number // New: Track specific constraint errors
-  endpoints_tried: string[]
-  success_endpoint: string
-  error_details: string[] // New: Store specific error messages
-}
-
-// Token management functions
+// Token management functions (same as webinars sync)
 async function decryptCredential(encryptedText: string, key: string): Promise<string> {
   try {
     const combined = Uint8Array.from(atob(encryptedText), c => c.charCodeAt(0))
@@ -69,7 +49,7 @@ async function decryptCredential(encryptedText: string, key: string): Promise<st
 }
 
 async function getZoomAccessToken(userId: string, supabaseClient: any): Promise<string> {
-  console.log('Getting Zoom access token for aggressive recovery...')
+  console.log('Getting Zoom access token for user:', userId)
   
   const { data: connection, error: connectionError } = await supabaseClient
     .from('zoom_connections')
@@ -117,207 +97,6 @@ async function getZoomAccessToken(userId: string, supabaseClient: any): Promise<
   }
 }
 
-// Enhanced fetch with aggressive pagination, retry logic, and detailed error handling
-async function fetchParticipantsAggressively(url: string, accessToken: string, maxRetries = 5): Promise<any> {
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      console.log(`🚀 Aggressive fetch (attempt ${attempt}/${maxRetries}): ${url}`)
-      
-      const response = await fetch(url, {
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
-        },
-      })
-
-      // Handle non-JSON responses gracefully
-      let data;
-      const contentType = response.headers.get('content-type');
-      if (contentType && contentType.includes('application/json')) {
-        data = await response.json();
-      } else {
-        const text = await response.text();
-        console.error(`Non-JSON response (${response.status}): ${text.substring(0, 200)}${text.length > 200 ? '...' : ''}`);
-        data = { error: 'Invalid response format', status: response.status };
-      }
-      
-      if (!response.ok) {
-        if (response.status === 429) {
-          // Exponential backoff for rate limiting
-          const waitTime = Math.pow(2, attempt) * 3000
-          console.log(`⏸️ Rate limited, waiting ${waitTime}ms before retry...`)
-          await new Promise(resolve => setTimeout(resolve, waitTime))
-          continue
-        }
-        
-        if (response.status === 404) {
-          console.log('ℹ️ No participants found (404) - this is normal for some webinars')
-          return { participants: [], total_records: 0 }
-        }
-        
-        throw new Error(`Zoom API error (${response.status}): ${data.message || data.error || 'Unknown error'}`)
-      }
-
-      console.log(`✅ Successfully fetched participants data (${data.participants?.length || 0} participants)`)
-      return data
-      
-    } catch (error) {
-      console.error(`❌ Attempt ${attempt} failed:`, error)
-      
-      if (attempt === maxRetries) {
-        throw error
-      }
-      
-      // Progressive wait time
-      const waitTime = Math.pow(2, attempt) * 1500
-      console.log(`⏸️ Waiting ${waitTime}ms before retry...`)
-      await new Promise(resolve => setTimeout(resolve, waitTime))
-    }
-  }
-}
-
-// Enhanced engagement score calculation with strict bounds checking
-// CRITICAL FIX: Ensure score never exceeds database constraint (9.99)
-function calculateEngagementScoreSafe(participant: ZoomParticipant, maxDuration: number): number {
-  let engagementScore = 0
-  
-  // Basic validation to prevent NaN results
-  const participantDuration = typeof participant.duration === 'number' && !isNaN(participant.duration) ? 
-    participant.duration : 0;
-  
-  // Only calculate if we have valid durations
-  if (maxDuration > 0 && participantDuration > 0) {
-    // Base score from duration (0-7 points) with safety bounds
-    const durationRatio = Math.min(1, Math.max(0, participantDuration / maxDuration))
-    engagementScore += durationRatio * 7
-    
-    // Bonus for attentiveness score (0-2 points) with validation
-    if (participant.attentiveness_score) {
-      const attentivenessStr = participant.attentiveness_score.toString().trim();
-      const attentiveness = parseFloat(attentivenessStr)
-      if (!isNaN(attentiveness) && attentiveness >= 0 && attentiveness <= 100) {
-        engagementScore += Math.min(2, (attentiveness / 100) * 2)
-      }
-    }
-  }
-  
-  // CRITICAL: Strict bounds enforcement with multiple safeguards
-  // Ensure score never exceeds database constraint (9.99) 
-  // Apply multiple validations to guarantee compliance
-  const maxAllowedScore = 9.99;
-  let finalScore = Math.min(maxAllowedScore, Math.max(0, engagementScore));
-  
-  // Further safeguard: round to 2 decimal places to prevent floating point issues
-  const roundedScore = Math.floor(finalScore * 100) / 100;
-  
-  console.log(`📊 Safe engagement: ${participant.name}: duration=${participantDuration}s, max=${maxDuration}s, raw_score=${engagementScore.toFixed(2)}, final=${roundedScore.toFixed(2)}`)
-  
-  return roundedScore;
-}
-
-// Enhanced bot detection with improved accuracy while minimizing false positives
-function isLikelyBotLenient(participant: ZoomParticipant): boolean {
-  const name = (participant.name || '').toLowerCase();
-  const email = (participant.user_email || '').toLowerCase();
-  
-  // Only filter OBVIOUS bots to maximize data recovery
-  const obviousBotIndicators = [
-    'zoom recorder', 'zoom recording', 'system test', 'api test',
-    'webhook test', 'automated system', 'bot test'
-  ]
-  
-  // Check for definite bot patterns
-  const isObviousBot = obviousBotIndicators.some(indicator => 
-    name.includes(indicator) || email.includes(indicator)
-  )
-  
-  // Only filter if BOTH obvious bot indicator AND extremely short duration (< 3 seconds)
-  const extremelyShortDuration = (participant.duration || 0) < 3
-  const shouldFilter = isObviousBot && extremelyShortDuration
-  
-  if (shouldFilter) {
-    console.log(`🤖 Filtered obvious bot: ${name} (${email}) - duration: ${participant.duration}s`)
-  }
-  
-  return shouldFilter
-}
-
-// Enhanced progressive email validation with multiple fallback strategies
-function isValidEmailLenient(email: string): boolean {
-  if (!email || typeof email !== 'string') return false;
-  
-  const trimmedEmail = email.trim();
-  if (trimmedEmail === '') return false;
-  
-  // Strategy 1: Basic check for any email-like format
-  const basicEmailPattern = /.+@.+\..+/;
-  const basicValid = basicEmailPattern.test(trimmedEmail);
-  
-  // Strategy 2: Allow partial emails with just @ symbol if basic check fails
-  const partialEmailPattern = /.+@.+/;
-  const partiallyValid = partialEmailPattern.test(trimmedEmail);
-  
-  // Accept if either validation passes
-  const isValid = basicValid || partiallyValid;
-  
-  if (!isValid) {
-    console.log(`📧 Invalid email filtered: "${email}"`);
-  }
-  
-  return isValid;
-}
-
-// Enhanced data sanitization with validation and constraint checking
-function sanitizeParticipantData(participant: ZoomParticipant): any {
-  // Sanitize and truncate text fields to prevent DB constraint violations
-  const name = participant.name 
-    ? participant.name.toString().substring(0, 255) 
-    : 'Unknown Attendee';
-  
-  const email = participant.user_email 
-    ? participant.user_email.toString().toLowerCase().trim().substring(0, 255) 
-    : '';
-  
-  const zoomUserId = (participant.user_id || participant.id || '')
-    .toString().substring(0, 255);
-
-  // Ensure join and leave times are valid dates or null
-  let joinTime = null;
-  let leaveTime = null;
-  
-  try {
-    if (participant.join_time) {
-      joinTime = new Date(participant.join_time).toISOString();
-    }
-  } catch (e) {
-    console.log(`Invalid join_time for ${name}: ${participant.join_time}`);
-  }
-  
-  try {
-    if (participant.leave_time) {
-      leaveTime = new Date(participant.leave_time).toISOString();
-    }
-  } catch (e) {
-    console.log(`Invalid leave_time for ${name}: ${participant.leave_time}`);
-  }
-  
-  // Ensure duration is a valid non-negative number
-  const durationSecs = typeof participant.duration === 'number' && !isNaN(participant.duration)
-    ? Math.max(0, participant.duration)
-    : 0;
-  
-  const durationMinutes = Math.round(durationSecs / 60);
-  
-  return {
-    zoom_user_id: zoomUserId,
-    name: name,
-    email: email,
-    join_time: joinTime,
-    leave_time: leaveTime,
-    duration_minutes: durationMinutes,
-  };
-}
-
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -335,26 +114,9 @@ serve(async (req) => {
       throw new Error('Organization ID, User ID, and Zoom webinar ID are required')
     }
 
-    console.log('🚀 Starting ENHANCED RECOVERY for webinar:', zoom_webinar_id)
+    console.log('Starting participant sync for webinar:', zoom_webinar_id, 'user:', user_id)
 
-    // Initialize recovery statistics with enhanced error tracking
-    const recoveryStats: RecoveryStats = {
-      total_api_calls: 0,
-      total_pages_processed: 0,
-      participants_found: 0,
-      participants_after_dedup: 0,
-      participants_stored: 0,
-      bots_filtered: 0,
-      invalid_emails_filtered: 0,
-      validation_errors: 0,
-      database_errors: 0,
-      constraint_violations: 0,
-      endpoints_tried: [],
-      success_endpoint: '',
-      error_details: []
-    }
-
-    // Get access token
+    // Get access token using the new token management
     const accessToken = await getZoomAccessToken(user_id, supabaseClient)
 
     // Log sync start
@@ -364,385 +126,150 @@ serve(async (req) => {
         organization_id,
         user_id,
         webinar_id,
-        sync_type: 'participants_aggressive',
+        sync_type: 'participants',
         status: 'started',
       })
       .select()
       .single()
 
-    console.log('📝 Created enhanced recovery log:', syncLog?.id)
+    console.log('Created sync log:', syncLog?.id)
 
-    // PHASE 1: MULTI-ENDPOINT STRATEGY WITH IMPROVED ERROR HANDLING
+    // Fetch participants from Zoom API
     let allParticipants: ZoomParticipant[] = []
-    let successfulEndpoint = ''
+    let nextPageToken = ''
+    let pageCount = 0
     
-    // Strategy 1: Past webinars endpoint with maximum pagination
-    try {
-      console.log('🔍 Strategy 1: Enhanced past webinars participants endpoint...')
-      recoveryStats.endpoints_tried.push('past_webinars')
+    do {
+      pageCount++
+      console.log(`Fetching page ${pageCount} of participants...`)
       
-      let nextPageToken = ''
-      let pageCount = 0
-      const maxPages = 300 // Increased safety limit for large webinars
+      const params = new URLSearchParams({
+        page_size: '300',
+      })
       
-      do {
-        pageCount++
-        console.log(`📄 Enhanced pagination - Page ${pageCount}/${maxPages}...`)
-        
-        const params = new URLSearchParams({
-          page_size: '1000', // MAXIMUM page size
-          include_fields: 'registrant_id,status,join_time,leave_time,duration,attentiveness_score,failover'
-        })
-        
-        if (nextPageToken) {
-          params.append('next_page_token', nextPageToken)
-        }
-
-        const url = `https://api.zoom.us/v2/past_webinars/${zoom_webinar_id}/participants?${params}`
-        const data = await fetchParticipantsAggressively(url, accessToken)
-        
-        recoveryStats.total_api_calls++
-        recoveryStats.total_pages_processed++
-        
-        const participants = data.participants || []
-        allParticipants = allParticipants.concat(participants)
-        nextPageToken = data.next_page_token || ''
-        
-        console.log(`📊 Page ${pageCount}: Found ${participants.length} participants (Total: ${allParticipants.length})`)
-        
-        // Minimal delay to respect rate limits
-        await new Promise(resolve => setTimeout(resolve, 200))
-        
-      } while (nextPageToken && pageCount < maxPages)
-
-      successfulEndpoint = 'past_webinars'
-      recoveryStats.participants_found = allParticipants.length
-      console.log(`✅ Past webinars strategy successful: ${allParticipants.length} participants found`)
-      
-    } catch (pastWebinarError) {
-      console.log('⚠️ Past webinars endpoint failed, trying metrics endpoint...')
-      console.error('Past webinar error:', pastWebinarError)
-      recoveryStats.error_details.push(`Past webinars API failed: ${pastWebinarError.message}`)
-      
-      // Strategy 2: Metrics endpoint as fallback with enhanced error handling
-      try {
-        console.log('🔍 Strategy 2: Metrics endpoint with enhanced pagination...')
-        recoveryStats.endpoints_tried.push('metrics')
-        allParticipants = [] // Reset
-        
-        let nextPageToken = ''
-        let pageCount = 0
-        const maxPages = 300
-        
-        do {
-          pageCount++
-          console.log(`📄 Metrics pagination - Page ${pageCount}/${maxPages}...`)
-          
-          const params = new URLSearchParams({
-            page_size: '1000', // MAXIMUM page size
-          })
-          
-          if (nextPageToken) {
-            params.append('next_page_token', nextPageToken)
-          }
-
-          const url = `https://api.zoom.us/v2/metrics/webinars/${zoom_webinar_id}/participants?${params}`
-          const data = await fetchParticipantsAggressively(url, accessToken)
-          
-          recoveryStats.total_api_calls++
-          recoveryStats.total_pages_processed++
-          
-          const participants = data.participants || []
-          allParticipants = allParticipants.concat(participants)
-          nextPageToken = data.next_page_token || ''
-          
-          console.log(`📊 Metrics Page ${pageCount}: Found ${participants.length} participants (Total: ${allParticipants.length})`)
-          
-          await new Promise(resolve => setTimeout(resolve, 200))
-          
-        } while (nextPageToken && pageCount < maxPages)
-
-        successfulEndpoint = 'metrics'
-        recoveryStats.participants_found = allParticipants.length
-        console.log(`✅ Metrics strategy successful: ${allParticipants.length} participants found`)
-        
-      } catch (metricsError) {
-        console.error('❌ Both strategies failed:', { pastWebinarError, metricsError })
-        recoveryStats.error_details.push(`Metrics API failed: ${metricsError.message}`)
-        
-        // Try Strategy 3: List registrants and filter those who attended (last resort)
-        try {
-          console.log('🔍 Strategy 3: Registrants endpoint with attendance filter...')
-          recoveryStats.endpoints_tried.push('registrants')
-          allParticipants = [] // Reset
-          
-          let nextPageToken = ''
-          let pageCount = 0
-          const maxPages = 50
-          
-          do {
-            pageCount++
-            console.log(`📄 Registrants pagination - Page ${pageCount}/${maxPages}...`)
-            
-            const params = new URLSearchParams({
-              page_size: '300',
-              status: 'attended' // Only get registrants who attended
-            })
-            
-            if (nextPageToken) {
-              params.append('next_page_token', nextPageToken)
-            }
-
-            const url = `https://api.zoom.us/v2/webinars/${zoom_webinar_id}/registrants?${params}`
-            const data = await fetchParticipantsAggressively(url, accessToken)
-            
-            recoveryStats.total_api_calls++
-            recoveryStats.total_pages_processed++
-            
-            // Convert registrants format to participants format
-            const registrants = data.registrants || []
-            const convertedParticipants = registrants.map((r: any) => ({
-              id: r.id,
-              user_id: r.id,
-              name: `${r.first_name || ''} ${r.last_name || ''}`.trim(),
-              user_email: r.email,
-              join_time: r.join_time || new Date().toISOString(),
-              leave_time: r.leave_time || new Date().toISOString(),
-              duration: r.duration || 60, // Default 1 minute if not known
-              attentiveness_score: '0'
-            }))
-            
-            allParticipants = allParticipants.concat(convertedParticipants)
-            nextPageToken = data.next_page_token || ''
-            
-            console.log(`📊 Registrants Page ${pageCount}: Found ${convertedParticipants.length} attended registrants (Total: ${allParticipants.length})`)
-            
-            await new Promise(resolve => setTimeout(resolve, 200))
-            
-          } while (nextPageToken && pageCount < maxPages)
-
-          if (allParticipants.length > 0) {
-            successfulEndpoint = 'registrants_attended'
-            recoveryStats.participants_found = allParticipants.length
-            console.log(`✅ Registrants strategy successful as fallback: ${allParticipants.length} participants found`)
-          } else {
-            throw new Error('No attendees found from registrant endpoint')
-          }
-          
-        } catch (registrantsError) {
-          console.error('❌ All three strategies failed:', { pastWebinarError, metricsError, registrantsError })
-          recoveryStats.error_details.push(`Registrants API failed: ${registrantsError.message}`)
-          throw new Error(`Failed to fetch participants from all endpoints. Try manual recovery.`)
-        }
+      if (nextPageToken) {
+        params.append('next_page_token', nextPageToken)
       }
-    }
 
-    recoveryStats.success_endpoint = successfulEndpoint
-    console.log(`🎯 TOTAL PARTICIPANTS FOUND: ${allParticipants.length} using ${successfulEndpoint} API`)
+      const response = await fetch(`https://api.zoom.us/v2/metrics/webinars/${zoom_webinar_id}/participants?${params}`, {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+      })
 
-    // PHASE 2: ENHANCED DEDUPLICATION WITH INTELLIGENT MERGING
+      const data = await response.json()
+      
+      if (!response.ok) {
+        console.error('Zoom API error:', data)
+        throw new Error(`Zoom API error: ${data.message || data.error}`)
+      }
+
+      const participants = data.participants || []
+      allParticipants = allParticipants.concat(participants)
+      nextPageToken = data.next_page_token || ''
+      
+      console.log(`Page ${pageCount}: Found ${participants.length} participants`)
+      
+      // Add small delay to respect rate limits
+      await new Promise(resolve => setTimeout(resolve, 100))
+      
+    } while (nextPageToken && pageCount < 10) // Safety limit
+
+    console.log(`Total participants found: ${allParticipants.length}`)
+
+    // Process and deduplicate participants by email
     const participantMap = new Map<string, ZoomParticipant>()
-    let duplicatesFound = 0
-    let idOnlyEntries = 0
     
     for (const participant of allParticipants) {
-      // Handle participants with missing email - use ID as backup key
-      const hasValidEmail = participant.user_email?.trim().length > 0;
-      const mapKey = hasValidEmail 
-        ? participant.user_email.toLowerCase().trim() 
-        : `id_${participant.id || participant.user_id}`;
+      const email = participant.user_email?.toLowerCase() || `unknown_${participant.id}`
+      const existing = participantMap.get(email)
       
-      if (!hasValidEmail) {
-        idOnlyEntries++;
-      }
-      
-      if (participantMap.has(mapKey)) {
-        duplicatesFound++
-        const existing = participantMap.get(mapKey)!
-        
-        // Intelligent merging - keep best data from both records
-        // Prefer earliest join time
-        if (participant.join_time && existing.join_time) {
-          existing.join_time = new Date(participant.join_time) < new Date(existing.join_time) 
-            ? participant.join_time 
-            : existing.join_time;
-        } else {
-          existing.join_time = existing.join_time || participant.join_time;
-        }
-        
-        // Prefer latest leave time
-        if (participant.leave_time && existing.leave_time) {
-          existing.leave_time = new Date(participant.leave_time) > new Date(existing.leave_time) 
-            ? participant.leave_time 
-            : existing.leave_time;
-        } else {
-          existing.leave_time = existing.leave_time || participant.leave_time;
-        }
-        
-        // Take max duration
-        existing.duration = Math.max(existing.duration || 0, participant.duration || 0);
-        
-        // Merge other fields if missing
-        existing.name = existing.name || participant.name;
-        existing.user_email = existing.user_email || participant.user_email;
-        existing.attentiveness_score = existing.attentiveness_score || participant.attentiveness_score;
-      } else {
-        participantMap.set(mapKey, { ...participant });
+      if (!existing || new Date(participant.join_time) < new Date(existing.join_time)) {
+        // Keep the earliest join time for the same email
+        participantMap.set(email, {
+          ...participant,
+          duration: existing ? existing.duration + participant.duration : participant.duration
+        })
+      } else if (existing) {
+        // Aggregate duration for multiple sessions
+        existing.duration += participant.duration
       }
     }
 
-    const deduplicatedParticipants = Array.from(participantMap.values());
-    recoveryStats.participants_after_dedup = deduplicatedParticipants.length;
-    console.log(`🔄 After intelligent deduplication: ${deduplicatedParticipants.length} unique participants (${duplicatesFound} duplicates merged, ${idOnlyEntries} participants without email)`);
+    const deduplicatedParticipants = Array.from(participantMap.values())
+    console.log(`After deduplication: ${deduplicatedParticipants.length} unique participants`)
+
+    // Calculate engagement scores and store participants
+    let processedCount = 0
+    let errorCount = 0
     
-    // Calculate max duration for engagement scoring
-    const maxDuration = Math.max(...deduplicatedParticipants.map(p => p.duration || 0));
-    console.log(`📏 Max webinar duration: ${maxDuration} seconds`);
+    for (const participant of deduplicatedParticipants) {
+      try {
+        // Simple engagement score calculation (0-10 based on duration)
+        const maxDuration = Math.max(...deduplicatedParticipants.map(p => p.duration))
+        const engagementScore = maxDuration > 0 ? Math.min(10, (participant.duration / maxDuration) * 10) : 0
 
-    // PHASE 3: TRANSACTION-BASED PROCESSING WITH ENHANCED ERROR HANDLING
-    let processedCount = 0;
-    let validationErrors = 0;
-    let databaseErrors = 0;
-    let constraintViolations = 0;
-    const errorDetails: string[] = [];
-    
-    // Process participants in manageable batches
-    const batchSize = 200;
-    const totalBatches = Math.ceil(deduplicatedParticipants.length / batchSize);
-    
-    for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
-      const start = batchIndex * batchSize;
-      const end = Math.min(start + batchSize, deduplicatedParticipants.length);
-      const batch = deduplicatedParticipants.slice(start, end);
-      
-      console.log(`\n🔄 Processing batch ${batchIndex + 1}/${totalBatches} (${batch.length} participants)...`);
-      
-      for (const participant of batch) {
-        try {
-          // Step 1: Lenient filtering with detailed tracking
-          const isBot = isLikelyBotLenient(participant);
-          if (isBot) {
-            recoveryStats.bots_filtered++;
-            continue;
-          }
+        // Clean and validate email
+        const cleanEmail = participant.user_email?.toLowerCase().trim() || ''
+        const isValidEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)
+        
+        // Bot detection (simple heuristics)
+        const isLikelyBot = 
+          participant.name?.toLowerCase().includes('bot') ||
+          participant.name?.toLowerCase().includes('test') ||
+          participant.duration < 30 // Less than 30 seconds
 
-          const cleanEmail = participant.user_email?.toLowerCase().trim() || '';
-          const isValidEmail = isValidEmailLenient(cleanEmail);
-          if (!isValidEmail) {
-            recoveryStats.invalid_emails_filtered++;
-            continue;
-          }
-
-          // Step 2: Safe engagement score calculation with strict bounds
-          const engagementScore = calculateEngagementScoreSafe(participant, maxDuration);
-          
-          // Step 3: Comprehensive data sanitization
-          const sanitizedData = sanitizeParticipantData(participant);
-          
-          const attendeeData = {
-            webinar_id,
-            organization_id,
-            ...sanitizedData,
-            engagement_score: engagementScore,
-            updated_at: new Date().toISOString(),
-          };
-          
-          // Step 4: Validation with detailed error tracking
-          if (!attendeeData.name || !attendeeData.email || !attendeeData.webinar_id) {
-            const missingFields = [];
-            if (!attendeeData.name) missingFields.push('name');
-            if (!attendeeData.email) missingFields.push('email');
-            if (!attendeeData.webinar_id) missingFields.push('webinar_id');
-            
-            console.error(`❌ Missing required fields: ${missingFields.join(', ')}`);
-            recoveryStats.validation_errors++;
-            validationErrors++;
-            errorDetails.push(`Validation error: ${participant.name || 'Unknown'} missing ${missingFields.join(', ')}`);
-            continue;
-          }
-
-          // Step 5: Robust database insertion with detailed error handling
+        if (isValidEmail && !isLikelyBot) {
           const { error: upsertError } = await supabaseClient
             .from('attendees')
-            .upsert(attendeeData, {
+            .upsert({
+              webinar_id,
+              organization_id,
+              zoom_user_id: participant.user_id,
+              name: participant.name,
+              email: cleanEmail,
+              join_time: participant.join_time,
+              leave_time: participant.leave_time,
+              duration_minutes: Math.round(participant.duration / 60),
+              engagement_score: Math.round(engagementScore * 10) / 10, // Round to 1 decimal
+              updated_at: new Date().toISOString(),
+            }, {
               onConflict: 'webinar_id,email',
-              ignoreDuplicates: false,
-            });
+            })
 
           if (!upsertError) {
-            processedCount++;
-            if (processedCount % 50 === 0 || processedCount === deduplicatedParticipants.length) {
-              console.log(`💾 Progress: ${processedCount}/${deduplicatedParticipants.length} participants stored (${Math.round(processedCount/deduplicatedParticipants.length*100)}%)...`);
+            processedCount++
+            if (processedCount % 25 === 0) {
+              console.log(`Processed ${processedCount} participants...`)
             }
           } else {
-            console.error(`❌ Database error for ${participant.name} (${cleanEmail}):`, upsertError);
-            
-            // Categorize database errors for better troubleshooting
-            if (upsertError.message?.includes('violates check constraint')) {
-              constraintViolations++;
-              errorDetails.push(`Constraint violation for ${attendeeData.name}: ${upsertError.message}`);
-            } else {
-              databaseErrors++;
-              errorDetails.push(`DB error for ${attendeeData.name}: ${upsertError.message}`);
-            }
+            console.error('Error upserting participant:', upsertError)
+            errorCount++
           }
-          
-        } catch (error: any) {
-          console.error(`❌ Processing error for participant ${participant.name || participant.id || 'unknown'}:`, error);
-          databaseErrors++;
-          errorDetails.push(`Error processing ${participant.name || 'Unknown'}: ${error.message}`);
+        } else {
+          console.log(`Filtered out participant: ${participant.name} (${cleanEmail}) - Bot: ${isLikelyBot}, Valid email: ${isValidEmail}`)
         }
+        
+      } catch (error) {
+        console.error(`Error processing participant ${participant.id}:`, error)
+        errorCount++
       }
-      
-      // Progress update after each batch
-      console.log(`✅ Batch ${batchIndex + 1}/${totalBatches} complete. Total stored: ${processedCount}, Validation errors: ${validationErrors}, DB errors: ${databaseErrors}, Constraint violations: ${constraintViolations}`);
     }
 
-    recoveryStats.participants_stored = processedCount;
-    recoveryStats.validation_errors = validationErrors;
-    recoveryStats.database_errors = databaseErrors;
-    recoveryStats.constraint_violations = constraintViolations;
-    recoveryStats.error_details = errorDetails.slice(0, 100); // Limit error details to prevent payload size issues
+    console.log(`Participant sync completed: ${processedCount} processed, ${errorCount} errors`)
 
-    console.log(`\n🎉 ENHANCED RECOVERY COMPLETED!`);
-    console.log(`📊 Final Results:`);
-    console.log(`  - Total API calls: ${recoveryStats.total_api_calls}`);
-    console.log(`  - Pages processed: ${recoveryStats.total_pages_processed}`);
-    console.log(`  - Participants found: ${recoveryStats.participants_found}`);
-    console.log(`  - After deduplication: ${recoveryStats.participants_after_dedup}`);
-    console.log(`  - Successfully stored: ${recoveryStats.participants_stored}`);
-    console.log(`  - Bots filtered: ${recoveryStats.bots_filtered}`);
-    console.log(`  - Invalid emails: ${recoveryStats.invalid_emails_filtered}`);
-    console.log(`  - Validation errors: ${recoveryStats.validation_errors}`);
-    console.log(`  - Database errors: ${recoveryStats.database_errors}`);
-    console.log(`  - Constraint violations: ${recoveryStats.constraint_violations}`);
-    console.log(`  - Success endpoint: ${recoveryStats.success_endpoint}`);
-
-    // Update webinar attendee count
+    // Update attendee count in webinar
     if (webinar_id && processedCount > 0) {
-      const { error: updateError } = await supabaseClient
+      await supabaseClient
         .from('webinars')
-        .update({ 
-          attendees_count: processedCount,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', webinar_id);
-
-      if (updateError) {
-        console.error('⚠️ Failed to update webinar attendee count:', updateError);
-        recoveryStats.error_details.push(`Failed to update webinar count: ${updateError.message}`);
-      } else {
-        console.log(`📊 Updated webinar attendee count to ${processedCount}`);
-      }
+        .update({ attendees_count: processedCount })
+        .eq('id', webinar_id)
     }
 
-    // Update sync log with comprehensive results
-    const syncStatus = processedCount > 0 ? 'completed' : 'failed';
-    const totalErrors = recoveryStats.database_errors + recoveryStats.validation_errors + recoveryStats.constraint_violations;
-    
-    const errorMessage = totalErrors > 0
-      ? `Enhanced recovery: ${recoveryStats.database_errors} DB errors, ${recoveryStats.validation_errors} validation errors, ${recoveryStats.constraint_violations} constraint violations, ${recoveryStats.bots_filtered} bots filtered. Found ${recoveryStats.participants_found}, stored ${processedCount}.`
-      : null;
+    // Update sync log
+    const syncStatus = errorCount > 0 && processedCount === 0 ? 'failed' : 'completed'
+    const errorMessage = errorCount > 0 ? `${errorCount} participants failed to process` : null
     
     await supabaseClient
       .from('sync_logs')
@@ -752,64 +279,56 @@ serve(async (req) => {
         error_message: errorMessage,
         completed_at: new Date().toISOString(),
       })
-      .eq('id', syncLog?.id);
+      .eq('id', syncLog?.id)
 
     return new Response(
       JSON.stringify({ 
-        success: processedCount > 0,
+        success: true, 
         participants_synced: processedCount,
-        total_found: recoveryStats.participants_found,
-        after_deduplication: recoveryStats.participants_after_dedup,
-        recovery_stats: recoveryStats,
-        api_used: successfulEndpoint,
-        message: `ENHANCED RECOVERY: Found ${recoveryStats.participants_found}, stored ${processedCount} attendees.${totalErrors > 0 ? ` ${totalErrors} errors handled.` : ''}`,
-        error_summary: totalErrors > 0 ? errorDetails.slice(0, 5) : null
+        total_found: allParticipants.length,
+        after_deduplication: deduplicatedParticipants.length,
+        errors: errorCount
       }),
       {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       }
-    );
+    )
 
   } catch (error) {
-    console.error('💥 Enhanced recovery error:', error);
+    console.error('Participant sync error:', error)
     
     // Try to update sync log with error
     try {
       const supabaseClient = createClient(
         Deno.env.get('SUPABASE_URL') ?? '',
         Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-      );
+      )
       
-      const { user_id, webinar_id, organization_id } = await req.json().catch(() => ({}));
+      const { user_id, webinar_id } = await req.json().catch(() => ({}))
       
       if (user_id) {
         await supabaseClient
           .from('sync_logs')
           .insert({
-            organization_id: organization_id || 'unknown',
+            organization_id: 'unknown',
             user_id,
             webinar_id,
-            sync_type: 'participants_aggressive',
+            sync_type: 'participants',
             status: 'failed',
             error_message: error.message,
             completed_at: new Date().toISOString(),
-          });
+          })
       }
     } catch (logError) {
-      console.error('Failed to log error:', logError);
+      console.error('Failed to log error:', logError)
     }
     
     return new Response(
-      JSON.stringify({ 
-        success: false,
-        error: error.message,
-        participants_synced: 0,
-        recovery_stats: null
-      }),
+      JSON.stringify({ error: error.message }),
       {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       }
-    );
+    )
   }
-});
+})

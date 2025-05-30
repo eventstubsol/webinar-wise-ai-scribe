@@ -1,17 +1,15 @@
+
 import { useAuth } from "@/hooks/useAuth";
-import { useSyncLogs } from "@/hooks/useSyncLogs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import ZoomIntegration from "@/components/ZoomIntegration";
 import UserProfileCard from "@/components/UserProfileCard";
 import RecentActivityCard from "@/components/RecentActivityCard";
 import BulkRegistrationRecovery from "@/components/BulkRegistrationRecovery";
-import BulkAttendeeRecovery from "@/components/BulkAttendeeRecovery";
-import { Settings, Database, User, Activity, Users } from "lucide-react";
+import { Settings, Database, User, Activity } from "lucide-react";
 
 const AccountDashboard = () => {
   const { user } = useAuth();
-  const { syncLogs } = useSyncLogs();
 
   if (!user) {
     return (
@@ -33,7 +31,7 @@ const AccountDashboard = () => {
       </div>
 
       <Tabs defaultValue="profile" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-5">
+        <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="profile" className="flex items-center gap-2">
             <User className="w-4 h-4" />
             Profile
@@ -44,11 +42,7 @@ const AccountDashboard = () => {
           </TabsTrigger>
           <TabsTrigger value="data-recovery" className="flex items-center gap-2">
             <Database className="w-4 h-4" />
-            Registration Recovery
-          </TabsTrigger>
-          <TabsTrigger value="attendee-recovery" className="flex items-center gap-2">
-            <Users className="w-4 h-4" />
-            Attendee Recovery
+            Data Recovery
           </TabsTrigger>
           <TabsTrigger value="activity" className="flex items-center gap-2">
             <Activity className="w-4 h-4" />
@@ -57,7 +51,7 @@ const AccountDashboard = () => {
         </TabsList>
 
         <TabsContent value="profile" className="space-y-6">
-          <UserProfileCard user={user} />
+          <UserProfileCard />
         </TabsContent>
 
         <TabsContent value="integrations" className="space-y-6">
@@ -68,12 +62,8 @@ const AccountDashboard = () => {
           <BulkRegistrationRecovery />
         </TabsContent>
 
-        <TabsContent value="attendee-recovery" className="space-y-6">
-          <BulkAttendeeRecovery />
-        </TabsContent>
-
         <TabsContent value="activity" className="space-y-6">
-          <RecentActivityCard syncLogs={syncLogs} />
+          <RecentActivityCard />
         </TabsContent>
       </Tabs>
     </div>
