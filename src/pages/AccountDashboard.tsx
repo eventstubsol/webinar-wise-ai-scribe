@@ -1,4 +1,3 @@
-
 import { useAuth } from "@/hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -6,6 +5,8 @@ import ZoomIntegration from "@/components/ZoomIntegration";
 import UserProfileCard from "@/components/UserProfileCard";
 import RecentActivityCard from "@/components/RecentActivityCard";
 import BulkRegistrationRecovery from "@/components/BulkRegistrationRecovery";
+import MassResyncPanel from "@/components/MassResyncPanel";
+import { MassResyncDialog } from "@/components/MassResyncDialog";
 import { useSyncLogs } from "@/hooks/useSyncLogs";
 import { Settings, Database, User, Activity } from "lucide-react";
 
@@ -61,7 +62,28 @@ const AccountDashboard = () => {
         </TabsContent>
 
         <TabsContent value="data-recovery" className="space-y-6">
-          <BulkRegistrationRecovery />
+          <div className="grid gap-6">
+            <BulkRegistrationRecovery />
+            <MassResyncPanel />
+            
+            {/* Enhanced Mass Re-sync Dialog */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center space-x-2">
+                  <Database className="w-5 h-5" />
+                  <span>Enhanced Mass Re-sync</span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  <p className="text-sm text-gray-600">
+                    Advanced mass re-sync with enhanced progress tracking and detailed results.
+                  </p>
+                  <MassResyncDialog />
+                </div>
+              </CardContent>
+            </Card>
+          </div>
         </TabsContent>
 
         <TabsContent value="activity" className="space-y-6">
