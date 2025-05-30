@@ -1,3 +1,4 @@
+
 import { useAuth } from "@/hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -7,6 +8,7 @@ import RecentActivityCard from "@/components/RecentActivityCard";
 import BulkRegistrationRecovery from "@/components/BulkRegistrationRecovery";
 import MassResyncPanel from "@/components/MassResyncPanel";
 import { MassResyncDialog } from "@/components/MassResyncDialog";
+import { ChunkedMassResyncDialog } from "@/components/ChunkedMassResyncDialog";
 import { useSyncLogs } from "@/hooks/useSyncLogs";
 import { Settings, Database, User, Activity } from "lucide-react";
 
@@ -66,20 +68,41 @@ const AccountDashboard = () => {
             <BulkRegistrationRecovery />
             <MassResyncPanel />
             
-            {/* Enhanced Mass Re-sync Dialog */}
+            {/* Original Mass Re-sync Dialog */}
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center space-x-2">
                   <Database className="w-5 h-5" />
-                  <span>Enhanced Mass Re-sync</span>
+                  <span>Legacy Mass Re-sync</span>
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
                   <p className="text-sm text-gray-600">
-                    Advanced mass re-sync with enhanced progress tracking and detailed results.
+                    Original mass re-sync method (may timeout for large datasets).
                   </p>
                   <MassResyncDialog />
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* New Chunked Mass Re-sync Dialog */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center space-x-2">
+                  <Database className="w-5 h-5" />
+                  <span>Chunked Mass Re-sync</span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  <p className="text-sm text-gray-600">
+                    Improved mass re-sync with chunked processing to prevent timeouts and better progress tracking.
+                  </p>
+                  <div className="bg-blue-50 p-3 rounded text-sm text-blue-700">
+                    <strong>Recommended:</strong> Use this method for large datasets to avoid timeout issues.
+                  </div>
+                  <ChunkedMassResyncDialog />
                 </div>
               </CardContent>
             </Card>

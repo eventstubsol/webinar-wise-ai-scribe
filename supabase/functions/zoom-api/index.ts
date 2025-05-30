@@ -1,4 +1,3 @@
-
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { syncCompleteWebinarWithAllInstances } from './handlers/syncCompleteWebinar.ts'
@@ -120,6 +119,15 @@ serve(async (req) => {
         }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         });
+
+      case 'chunked_mass_resync':
+        // Import dynamically to avoid issues
+        const { handleChunkedMassResync } = await import('./handlers/chunkedMassResync.ts');
+        return await handleChunkedMassResync(req, supabase, user, credentials);
+
+      case 'get_resync_status':
+        const { getChunkedResyncStatus } = await import('./handlers/chunkedMassResync.ts');
+        return await getChunkedResyncStatus(req, supabase, user);
 
       case 'mass_resync':
         return await handleMassResyncAllWebinars(req, supabase, user, credentials);
