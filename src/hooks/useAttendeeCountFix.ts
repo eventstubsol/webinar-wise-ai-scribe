@@ -19,7 +19,7 @@ export const useAttendeeCountFix = () => {
         .eq('webinar_id', webinarId)
         .eq('is_historical', false);
 
-      // Get registrant count (excluding historical records)
+      // Get registrant count (excluding historical records)  
       const { count: registrantCount } = await supabase
         .from('zoom_registrations')
         .select('id', { count: 'exact', head: true })
