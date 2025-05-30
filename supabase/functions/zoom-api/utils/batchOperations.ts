@@ -86,7 +86,7 @@ export async function storeParticipantsInBatches(
       }
     }
     
-    // Process attendees in batches - store in BOTH tables using UPSERT
+    // Process attendees in batches - store in BOTH tables using UPSERT with better error handling
     if (attendees.length > 0) {
       console.log(`[batchOperations] Storing ${attendees.length} attendees in batches of ${BATCH_SIZE}`);
       
@@ -108,11 +108,17 @@ export async function storeParticipantsInBatches(
           raw_data: attendee
         }));
         
-        // Store in attendees table using UPSERT to handle duplicates
+        // Store in attendees table using UPSERT with improved handling for null values
         const attendeesToUpsert = batch.map((attendee: any, index: number) => {
           const duration = attendee.duration || 0;
           const engagementScore = Math.min(10, Math.max(0, duration / 60)); // Simple engagement based on duration
-          const zoomUserId = attendee.id || attendee.user_id || `att_${instanceId}_${i + index}`;
+          let zoomUserId = attendee.id || attendee.user_id;
+          
+          // Handle cases where zoom_user_id might be null or empty
+          if (!zoomUserId || zoomUserId === '') {
+            zoomUserId = `att_${instanceId}_${i + index}_${Date.now()}`;
+            console.log(`[batchOperations] Generated fallback zoom_user_id: ${zoomUserId} for attendee ${attendee.name || 'Unknown'}`);
+          }
           
           return {
             organization_id: organizationId,
@@ -138,11 +144,11 @@ export async function storeParticipantsInBatches(
           .from('zoom_webinar_instance_participants')
           .insert(participantsToInsert);
         
-        // UPSERT into attendees table - this will update existing or insert new
+        // UPSERT into attendees table with the new unique constraint
         const attendeesResult = await supabase
           .from('attendees')
           .upsert(attendeesToUpsert, {
-            onConflict: 'zoom_user_id,webinar_id,organization_id',
+            onConflict: 'unique_attendee_per_webinar',
             ignoreDuplicates: false
           });
         
@@ -152,6 +158,7 @@ export async function storeParticipantsInBatches(
         
         if (attendeesResult.error) {
           console.error(`[batchOperations] Error upserting attendees batch ${i}-${i + batch.length}:`, attendeesResult.error);
+          console.error(`[batchOperations] Attendees error details:`, JSON.stringify(attendeesResult.error, null, 2));
           // Continue processing even if some attendees fail
         } else {
           console.log(`[batchOperations] Successfully upserted attendees batch ${i + 1}-${i + batch.length}`);
@@ -167,6 +174,16 @@ export async function storeParticipantsInBatches(
     }
     
     console.log(`[batchOperations] Successfully stored ${totalStored} total participants for instance ${instanceId}`);
+    
+    // Log final counts for verification
+    const { data: finalAttendeeCount } = await supabase
+      .from('attendees')
+      .select('id', { count: 'exact' })
+      .eq('organization_id', organizationId)
+      .eq('webinar_id', internalWebinarId);
+    
+    console.log(`[batchOperations] Total attendees now in attendees table for this webinar: ${finalAttendeeCount?.length || 'unknown'}`);
+    
     return totalStored;
     
   } catch (error) {
