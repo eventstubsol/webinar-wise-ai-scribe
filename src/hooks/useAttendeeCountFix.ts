@@ -10,17 +10,23 @@ export const useAttendeeCountFix = () => {
 
   const fixAttendeeCountsForWebinar = async (webinarId: string) => {
     try {
-      // Get attendee count
+      console.log(`[useAttendeeCountFix] Fixing counts for webinar: ${webinarId}`);
+      
+      // Get attendee count (excluding historical records)
       const { count: attendeeCount } = await supabase
         .from('attendees')
         .select('id', { count: 'exact', head: true })
-        .eq('webinar_id', webinarId);
+        .eq('webinar_id', webinarId)
+        .eq('is_historical', false);
 
-      // Get registrant count  
+      // Get registrant count (excluding historical records)
       const { count: registrantCount } = await supabase
         .from('zoom_registrations')
         .select('id', { count: 'exact', head: true })
-        .eq('webinar_id', webinarId);
+        .eq('webinar_id', webinarId)
+        .eq('is_historical', false);
+
+      console.log(`[useAttendeeCountFix] Found ${attendeeCount || 0} attendees, ${registrantCount || 0} registrants`);
 
       // Update webinar counts
       const { error: updateError } = await supabase
@@ -35,6 +41,8 @@ export const useAttendeeCountFix = () => {
       if (updateError) {
         throw updateError;
       }
+
+      console.log(`[useAttendeeCountFix] Successfully updated counts for webinar ${webinarId}`);
 
       return {
         attendees_count: attendeeCount || 0,
@@ -70,30 +78,44 @@ export const useAttendeeCountFix = () => {
         throw new Error('User profile not found');
       }
 
+      console.log(`[useAttendeeCountFix] Starting comprehensive count fix for organization: ${profile.organization_id}`);
+
       // Get all webinars for the organization
       const { data: webinars, error: webinarsError } = await supabase
         .from('webinars')
-        .select('id, title, status')
+        .select('id, title, status, attendees_count, registrants_count')
         .eq('organization_id', profile.organization_id);
 
       if (webinarsError) {
         throw webinarsError;
       }
 
+      console.log(`[useAttendeeCountFix] Processing ${webinars?.length || 0} webinars`);
+
       let fixed = 0;
       let totalAttendees = 0;
       let totalRegistrants = 0;
-      let webinarsWithMissingData = 0;
+      let webinarsWithUpdatedCounts = 0;
+      let completedWebinarsWithNoAttendees = 0;
 
       for (const webinar of webinars || []) {
         try {
+          const oldAttendeeCount = webinar.attendees_count || 0;
+          const oldRegistrantCount = webinar.registrants_count || 0;
+          
           const counts = await fixAttendeeCountsForWebinar(webinar.id);
           totalAttendees += counts.attendees_count;
           totalRegistrants += counts.registrants_count;
           
-          // Track webinars that likely had missing attendee data
+          // Check if counts actually changed
+          if (counts.attendees_count !== oldAttendeeCount || counts.registrants_count !== oldRegistrantCount) {
+            webinarsWithUpdatedCounts++;
+            console.log(`[useAttendeeCountFix] Updated ${webinar.title}: ${oldAttendeeCount}->${counts.attendees_count} attendees, ${oldRegistrantCount}->${counts.registrants_count} registrants`);
+          }
+          
+          // Track completed webinars that still have no attendees but have registrants
           if (webinar.status === 'completed' && counts.attendees_count === 0 && counts.registrants_count > 0) {
-            webinarsWithMissingData++;
+            completedWebinarsWithNoAttendees++;
           }
           
           fixed++;
@@ -102,24 +124,49 @@ export const useAttendeeCountFix = () => {
         }
       }
 
-      if (webinarsWithMissingData > 0) {
+      console.log(`[useAttendeeCountFix] Comprehensive fix completed:`, {
+        processed: fixed,
+        updated: webinarsWithUpdatedCounts,
+        totalAttendees,
+        totalRegistrants,
+        completedWithMissingAttendees: completedWebinarsWithNoAttendees
+      });
+
+      // Show appropriate success message
+      if (webinarsWithUpdatedCounts > 0) {
         toast({
-          title: "Count Update Complete",
-          description: `Updated ${fixed} webinars. Found ${webinarsWithMissingData} completed webinars that may need attendee data synced from Zoom.`,
-          variant: "default",
+          title: "Attendee Counts Fixed",
+          description: `Updated ${webinarsWithUpdatedCounts} webinars. Total: ${totalAttendees} attendees, ${totalRegistrants} registrants.`,
         });
       } else {
         toast({
-          title: "Attendee Counts Updated",
-          description: `Updated ${fixed} webinars with ${totalAttendees} attendees and ${totalRegistrants} registrants`,
+          title: "Counts Already Accurate",
+          description: `All ${fixed} webinars already have correct counts. No updates needed.`,
         });
       }
 
-      return { fixed, totalAttendees, totalRegistrants, webinarsWithMissingData };
+      // Additional warning if there are still completed webinars without attendee data
+      if (completedWebinarsWithNoAttendees > 0) {
+        setTimeout(() => {
+          toast({
+            title: "Missing Attendee Data Detected",
+            description: `${completedWebinarsWithNoAttendees} completed webinars still have no attendee data. You may need to sync attendee data from Zoom.`,
+            variant: "default",
+          });
+        }, 2000);
+      }
+
+      return { 
+        fixed, 
+        updated: webinarsWithUpdatedCounts,
+        totalAttendees, 
+        totalRegistrants, 
+        completedWebinarsWithMissingAttendees: completedWebinarsWithNoAttendees 
+      };
     } catch (error: any) {
-      console.error('Error fixing attendee counts:', error);
+      console.error('Error in comprehensive attendee count fix:', error);
       toast({
-        title: "Fix Failed",
+        title: "Count Fix Failed",
         description: error.message || "Failed to fix attendee counts",
         variant: "destructive",
       });

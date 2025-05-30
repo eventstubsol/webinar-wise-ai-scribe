@@ -1,3 +1,4 @@
+
 import { storeAttendeesWithHistoricalPreservation, storeRegistrantsWithHistoricalPreservation } from './historicalParticipantStorage.ts';
 import { storeWebinarInstance } from './webinarInstanceStorage.ts';
 import { updateWebinarAttendeeCounts } from './attendeeCountUpdater.ts';
@@ -13,8 +14,7 @@ export async function storeParticipantsInBatches(
   let totalStored = 0;
   
   try {
-    console.log(`[batchOperations] Starting historical data preservation for instance ${instanceId}: ${registrants.length} registrants, ${attendees.length} attendees`);
-    console.log(`[batchOperations] Using historical preservation - existing data will be preserved and marked as historical when changes occur`);
+    console.log(`[batchOperations] Starting comprehensive data storage for instance ${instanceId}: ${registrants.length} registrants, ${attendees.length} attendees`);
     
     // Get user's organization_id first
     const { data: profile, error: profileError } = await supabase
@@ -78,10 +78,26 @@ export async function storeParticipantsInBatches(
       console.log(`[batchOperations] Attendees processed: ${attendeesStored} new/updated records`);
     }
 
-    // **NEW: Update webinar attendee and registrant counts**
-    console.log(`[batchOperations] Updating webinar attendee and registrant counts...`);
-    const updatedCounts = await updateWebinarAttendeeCounts(supabase, internalWebinarId);
-    console.log(`[batchOperations] Updated webinar counts - Attendees: ${updatedCounts.attendees_count}, Registrants: ${updatedCounts.registrants_count}`);
+    // **CRITICAL: Force immediate count update**
+    console.log(`[batchOperations] Force updating webinar attendee and registrant counts...`);
+    try {
+      const updatedCounts = await updateWebinarAttendeeCounts(supabase, internalWebinarId);
+      console.log(`[batchOperations] Force updated webinar counts - Attendees: ${updatedCounts.attendees_count}, Registrants: ${updatedCounts.registrants_count}`);
+      
+      // Double-check by querying the updated webinar record
+      const { data: verifyWebinar } = await supabase
+        .from('webinars')
+        .select('attendees_count, registrants_count, title')
+        .eq('id', internalWebinarId)
+        .single();
+      
+      if (verifyWebinar) {
+        console.log(`[batchOperations] Verified webinar "${verifyWebinar.title}" counts: ${verifyWebinar.attendees_count} attendees, ${verifyWebinar.registrants_count} registrants`);
+      }
+    } catch (countError) {
+      console.error(`[batchOperations] Warning: Failed to update webinar counts:`, countError);
+      // Don't throw here, continue with success since participant data was stored
+    }
 
     console.log(`[batchOperations] Successfully processed participants with historical preservation for instance ${instanceId}`);
     
@@ -94,16 +110,13 @@ export async function storeParticipantsInBatches(
     
     console.log(`[batchOperations] Historical preservation summary:`);
     console.log(`  - New/updated records: ${totalStored}`);
-    console.log(`  - Current active attendees: ${updatedCounts.attendees_count}`);
-    console.log(`  - Current registrants: ${updatedCounts.registrants_count}`);
     console.log(`  - Historical records preserved: ${totalHistorical?.length || 0}`);
-    console.log(`  - Total records in database: ${updatedCounts.attendees_count + (totalHistorical?.length || 0)}`);
     console.log(`  - Data preservation: ENABLED - Historical data will persist beyond Zoom's 90-day window`);
     
     return totalStored;
     
   } catch (error) {
-    console.error(`[batchOperations] Error in historical data preservation:`, error);
+    console.error(`[batchOperations] Error in comprehensive data storage:`, error);
     throw error;
   }
 }

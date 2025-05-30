@@ -1,4 +1,3 @@
-
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -40,13 +39,14 @@ const WebinarsList = ({ filters }: WebinarsListProps) => {
     return true;
   });
 
-  // Improved logic: Only show warning for completed webinars that have registrants but 0 attendees
-  // This indicates they likely had attendees but the data wasn't synced properly
-  const hasLikelyMissingAttendeeData = webinars.some(w => 
+  // **IMPROVED LOGIC**: Only show warning for completed webinars that clearly have missing attendee data
+  const webinarsWithMissingAttendeeData = webinars.filter(w => 
     w.status === 'completed' && 
-    w.registrants_count > 0 && 
-    w.attendees_count === 0
+    (w.registrants_count || 0) > 0 && 
+    (w.attendees_count || 0) === 0
   );
+
+  const hasLikelyMissingAttendeeData = webinarsWithMissingAttendeeData.length > 0;
 
   const getStatusBadge = (status: WebinarStatus, webinarId: string) => {
     const liveStatus = getWebinarStatus(webinarId);
@@ -117,8 +117,12 @@ const WebinarsList = ({ filters }: WebinarsListProps) => {
   };
 
   const handleFixCounts = async () => {
-    await fixAllAttendeeCounts();
-    await refreshData();
+    console.log('Starting comprehensive attendee count fix...');
+    const result = await fixAllAttendeeCounts();
+    if (result) {
+      console.log('Count fix completed, refreshing data...');
+      await refreshData();
+    }
   };
 
   if (loading) {
@@ -151,7 +155,7 @@ const WebinarsList = ({ filters }: WebinarsListProps) => {
               className="flex items-center space-x-2 text-orange-600 border-orange-200 hover:bg-orange-50"
             >
               <AlertCircle className={`w-4 h-4 ${fixing ? 'animate-spin' : ''}`} />
-              <span>Fix Attendee Data</span>
+              <span>Fix Attendee Counts</span>
             </Button>
           )}
           <Button 
@@ -173,10 +177,10 @@ const WebinarsList = ({ filters }: WebinarsListProps) => {
             <div className="flex items-center space-x-2 text-orange-800">
               <AlertCircle className="w-5 h-5" />
               <div>
-                <p className="font-medium">Missing attendee data detected</p>
+                <p className="font-medium">Missing Attendee Data Detected</p>
                 <p className="text-sm text-orange-700">
-                  Some completed webinars have registrations but no attendee data. 
-                  This typically happens when participant data wasn't synced from Zoom after the webinar ended.
+                  {webinarsWithMissingAttendeeData.length} completed webinar{webinarsWithMissingAttendeeData.length > 1 ? 's have' : ' has'} registration data but no attendee records. 
+                  Click "Fix Attendee Counts" to recalculate or sync from Zoom to get participant data.
                 </p>
               </div>
             </div>
@@ -218,7 +222,7 @@ const WebinarsList = ({ filters }: WebinarsListProps) => {
                       <span>
                         {webinar.status === 'completed' && webinar.attendees_count === 0 && webinar.registrants_count > 0 ? (
                           <span className="text-orange-600">
-                            No attendee data • {webinar.registrants_count} registered
+                            Missing attendee data • {webinar.registrants_count} registered
                           </span>
                         ) : webinar.status === 'upcoming' || webinar.status === 'scheduled' ? (
                           <span>
