@@ -18,11 +18,10 @@ interface ChunkedResyncProgress {
   errors: any[];
 }
 
-export async function handleChunkedMassResync(req: Request, supabase: any, user: any, credentials: any) {
+export async function handleChunkedMassResync(body: any, supabase: any, user: any, credentials: any) {
   const CHUNK_SIZE = 3; // Reduced chunk size to prevent timeouts
   
   try {
-    const body = await req.json();
     const { chunk = 0, job_id } = body;
 
     console.log(`[chunkedMassResync] Starting chunk ${chunk}, job_id: ${job_id || 'new'}`);
@@ -259,9 +258,8 @@ export async function handleChunkedMassResync(req: Request, supabase: any, user:
   }
 }
 
-export async function getChunkedResyncStatus(req: Request, supabase: any, user: any) {
+export async function getChunkedResyncStatus(body: any, supabase: any, user: any) {
   try {
-    const body = await req.json();
     const { job_id } = body;
     
     if (!job_id) {

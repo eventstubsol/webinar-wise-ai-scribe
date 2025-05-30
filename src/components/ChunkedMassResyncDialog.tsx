@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Progress } from '@/components/ui/progress';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { RefreshCw, Database, AlertTriangle, CheckCircle, Clock } from 'lucide-react';
@@ -24,6 +24,9 @@ export function ChunkedMassResyncDialog() {
             <RefreshCw className="w-5 h-5" />
             <span>Chunked Mass Re-sync</span>
           </DialogTitle>
+          <DialogDescription>
+            Re-sync all webinars using a chunked approach to prevent timeouts and track progress.
+          </DialogDescription>
         </DialogHeader>
         
         <div className="space-y-4">

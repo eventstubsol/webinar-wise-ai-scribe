@@ -88,8 +88,11 @@ serve(async (req) => {
       });
     }
 
+    // Parse body once here to avoid "Body already consumed" error
     const body = await req.json();
     const { action } = body;
+
+    console.log(`[zoom-api] Processing action: ${action}`);
 
     // Create decryption key (same as used in zoom-store-credentials)
     const encryptionKey = `${user.id}-${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')?.slice(0, 32)}`
@@ -125,11 +128,11 @@ serve(async (req) => {
       case 'chunked_mass_resync':
         // Import dynamically to avoid issues
         const { handleChunkedMassResync } = await import('./handlers/chunkedMassResync.ts');
-        return await handleChunkedMassResync(req, supabase, user, credentials);
+        return await handleChunkedMassResync(body, supabase, user, credentials);
 
       case 'get_resync_status':
         const { getChunkedResyncStatus } = await import('./handlers/chunkedMassResync.ts');
-        return await getChunkedResyncStatus(req, supabase, user);
+        return await getChunkedResyncStatus(body, supabase, user);
 
       case 'mass_resync':
         return await handleMassResyncAllWebinars(req, supabase, user, credentials);
