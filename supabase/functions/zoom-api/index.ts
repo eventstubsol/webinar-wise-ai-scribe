@@ -9,6 +9,37 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
+// Decryption function (same as in auth.ts)
+async function decryptCredential(encryptedText: string, key: string): Promise<string> {
+  try {
+    const combined = Uint8Array.from(atob(encryptedText), c => c.charCodeAt(0))
+    const iv = combined.slice(0, 12)
+    const encrypted = combined.slice(12)
+    
+    const encoder = new TextEncoder()
+    const keyData = encoder.encode(key.slice(0, 32).padEnd(32, '0'))
+    
+    const cryptoKey = await crypto.subtle.importKey(
+      'raw',
+      keyData,
+      { name: 'AES-GCM' },
+      false,
+      ['decrypt']
+    )
+    
+    const decrypted = await crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv },
+      cryptoKey,
+      encrypted
+    )
+    
+    return new TextDecoder().decode(decrypted)
+  } catch (error) {
+    console.error('Decryption error:', error)
+    throw new Error('Failed to decrypt credential')
+  }
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -59,12 +90,17 @@ serve(async (req) => {
     const body = await req.json();
     const { action } = body;
 
-    // Decrypt credentials (using simplified approach for this example)
+    // Create decryption key (same as used in zoom-store-credentials)
+    const encryptionKey = `${user.id}-${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')?.slice(0, 32)}`
+    
+    // Decrypt credentials
     const credentials = {
-      account_id: connection.encrypted_account_id,
-      client_id: connection.encrypted_client_id,
-      client_secret: connection.encrypted_client_secret
+      account_id: await decryptCredential(connection.encrypted_account_id, encryptionKey),
+      client_id: await decryptCredential(connection.encrypted_client_id, encryptionKey),
+      client_secret: await decryptCredential(connection.encrypted_client_secret, encryptionKey)
     };
+
+    console.log('Successfully decrypted credentials for user:', user.id);
 
     switch (action) {
       case 'sync_webinar':
