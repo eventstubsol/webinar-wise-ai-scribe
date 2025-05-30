@@ -14,6 +14,7 @@ export async function storeParticipantsInBatches(
   
   try {
     console.log(`[batchOperations] Starting enhanced batch storage for instance ${instanceId}: ${registrants.length} registrants, ${attendees.length} attendees`);
+    console.log(`[batchOperations] Note: Now storing ALL attendance records including multiple sessions per person per webinar`);
     
     // Get user's organization_id first
     const { data: profile, error: profileError } = await supabase
@@ -60,8 +61,8 @@ export async function storeParticipantsInBatches(
     totalStored += registrantsStored;
     console.log(`[batchOperations] Registrants stored: ${registrantsStored}`);
     
-    // Store attendees with enhanced error handling
-    console.log(`[batchOperations] Storing attendees...`);
+    // Store attendees with new INSERT-only approach (no more deduplication)
+    console.log(`[batchOperations] Storing attendees using INSERT operations to capture all attendance sessions...`);
     const attendeesStored = await storeAttendees(
       supabase, 
       userId, 
@@ -91,6 +92,7 @@ export async function storeParticipantsInBatches(
     console.log(`  - Total input: ${registrants.length + attendees.length} participants`);
     console.log(`  - Successfully stored: ${totalStored} participants`);
     console.log(`  - Success rate: ${((totalStored / (registrants.length + attendees.length)) * 100).toFixed(1)}%`);
+    console.log(`  - Storage method: INSERT (allowing multiple records per person per webinar)`);
     
     return totalStored;
     

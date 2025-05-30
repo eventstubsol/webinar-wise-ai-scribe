@@ -1,5 +1,8 @@
 
-// Utility to check database constraints and provide proper conflict resolution
+// Utility functions for database constraint management
+// Note: As of the latest update, unique constraints on attendees table have been removed
+// to allow storing multiple attendance records per person per webinar for accurate time tracking
+
 export async function getAttendeesTableConstraints(supabase: any) {
   try {
     // Query to get all constraints on the attendees table
@@ -24,6 +27,7 @@ export async function getAttendeesTableConstraints(supabase: any) {
       return null;
     }
 
+    console.log('[constraintChecker] Current attendees table constraints:', constraints);
     return constraints;
   } catch (error) {
     console.error('[constraintChecker] Failed to check constraints:', error);
@@ -31,27 +35,19 @@ export async function getAttendeesTableConstraints(supabase: any) {
   }
 }
 
+// This function is now deprecated since we're using INSERT instead of UPSERT
 export function determineConflictColumns(constraints: any[]): string {
+  console.log('[constraintChecker] Note: determineConflictColumns is deprecated - using INSERT operations instead of UPSERT');
+  
   if (!constraints || constraints.length === 0) {
-    // Fallback to the most logical unique constraint
-    return 'organization_id,webinar_id,zoom_user_id';
+    console.log('[constraintChecker] No unique constraints found - multiple records per person per webinar are now allowed');
+    return '';
   }
 
-  // Look for the most specific unique constraint that includes webinar and user identification
+  // Log remaining constraints for informational purposes
   for (const constraint of constraints) {
-    if (constraint.constraint_type === 'UNIQUE') {
-      const columns = constraint.columns.toLowerCase();
-      
-      // Priority order for conflict resolution
-      if (columns.includes('webinar_id') && columns.includes('zoom_user_id')) {
-        return constraint.columns;
-      }
-      if (columns.includes('webinar_id') && columns.includes('email')) {
-        return constraint.columns;
-      }
-    }
+    console.log(`[constraintChecker] Found constraint: ${constraint.constraint_name} (${constraint.constraint_type}) on columns: ${constraint.columns}`);
   }
-
-  // Fallback
-  return 'organization_id,webinar_id,zoom_user_id';
+  
+  return '';
 }
