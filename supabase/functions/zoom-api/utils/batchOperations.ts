@@ -43,20 +43,13 @@ export async function storeParticipantsInBatches(
     const internalWebinarId = webinarRecord.id;
     console.log(`[batchOperations] Found internal webinar ID: ${internalWebinarId}`);
     
-    // Clear existing data for this instance to avoid duplicates
-    console.log(`[batchOperations] Clearing existing data for instance ${instanceId}`);
-    await Promise.all([
-      supabase
-        .from('zoom_webinar_instance_participants')
-        .delete()
-        .eq('user_id', userId)
-        .eq('instance_id', instanceId),
-      supabase
-        .from('attendees')
-        .delete()
-        .eq('organization_id', organizationId)
-        .eq('webinar_id', internalWebinarId)
-    ]);
+    // Clear existing data for THIS SPECIFIC INSTANCE ONLY to avoid duplicates
+    console.log(`[batchOperations] Clearing existing data for instance ${instanceId} only`);
+    await supabase
+      .from('zoom_webinar_instance_participants')
+      .delete()
+      .eq('user_id', userId)
+      .eq('instance_id', instanceId);
     
     // Process registrants in batches (keep existing logic)
     if (registrants.length > 0) {
@@ -93,7 +86,7 @@ export async function storeParticipantsInBatches(
       }
     }
     
-    // Process attendees in batches - store in BOTH tables
+    // Process attendees in batches - store in BOTH tables using UPSERT
     if (attendees.length > 0) {
       console.log(`[batchOperations] Storing ${attendees.length} attendees in batches of ${BATCH_SIZE}`);
       
@@ -115,15 +108,16 @@ export async function storeParticipantsInBatches(
           raw_data: attendee
         }));
         
-        // Store in attendees table (NEW LOGIC)
-        const attendeesToInsert = batch.map((attendee: any, index: number) => {
+        // Store in attendees table using UPSERT to handle duplicates
+        const attendeesToUpsert = batch.map((attendee: any, index: number) => {
           const duration = attendee.duration || 0;
           const engagementScore = Math.min(10, Math.max(0, duration / 60)); // Simple engagement based on duration
+          const zoomUserId = attendee.id || attendee.user_id || `att_${instanceId}_${i + index}`;
           
           return {
             organization_id: organizationId,
             webinar_id: internalWebinarId,
-            zoom_user_id: attendee.id || attendee.user_id || `att_${instanceId}_${i + index}`,
+            zoom_user_id: zoomUserId,
             email: attendee.user_email || attendee.email || '',
             name: attendee.name || attendee.user_name || 'Unknown',
             join_time: attendee.join_time || new Date().toISOString(),
@@ -139,27 +133,33 @@ export async function storeParticipantsInBatches(
           };
         });
         
-        // Insert into both tables
-        const [participantsResult, attendeesResult] = await Promise.all([
-          supabase
-            .from('zoom_webinar_instance_participants')
-            .insert(participantsToInsert),
-          supabase
-            .from('attendees')
-            .insert(attendeesToInsert)
-        ]);
+        // Insert into zoom_webinar_instance_participants
+        const participantsResult = await supabase
+          .from('zoom_webinar_instance_participants')
+          .insert(participantsToInsert);
+        
+        // UPSERT into attendees table - this will update existing or insert new
+        const attendeesResult = await supabase
+          .from('attendees')
+          .upsert(attendeesToUpsert, {
+            onConflict: 'zoom_user_id,webinar_id,organization_id',
+            ignoreDuplicates: false
+          });
         
         if (participantsResult.error) {
           console.error(`[batchOperations] Error inserting participants batch ${i}-${i + batch.length}:`, participantsResult.error);
         }
         
         if (attendeesResult.error) {
-          console.error(`[batchOperations] Error inserting attendees batch ${i}-${i + batch.length}:`, attendeesResult.error);
+          console.error(`[batchOperations] Error upserting attendees batch ${i}-${i + batch.length}:`, attendeesResult.error);
+          // Continue processing even if some attendees fail
+        } else {
+          console.log(`[batchOperations] Successfully upserted attendees batch ${i + 1}-${i + batch.length}`);
         }
         
-        if (!participantsResult.error && !attendeesResult.error) {
+        if (!participantsResult.error) {
           totalStored += batch.length;
-          console.log(`[batchOperations] Successfully inserted batch ${i + 1}-${i + batch.length} into both tables`);
+          console.log(`[batchOperations] Successfully inserted participants batch ${i + 1}-${i + batch.length}`);
         }
         
         await new Promise(resolve => setTimeout(resolve, 100));
