@@ -2,7 +2,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Database, Archive, Calendar, TrendingUp } from "lucide-react";
+import { Database, Archive, Calendar, TrendingUp, AlertTriangle } from "lucide-react";
 import { useHistoricalData } from "@/hooks/useHistoricalData";
 import { toast } from "@/hooks/use-toast";
 
@@ -44,9 +44,13 @@ const HistoricalDataStatus = () => {
           <Archive className="w-5 h-5" />
           <span>Historical Data Preservation</span>
         </CardTitle>
-        {retentionSummary.dataPreservationWorking && (
+        {retentionSummary.dataPreservationWorking ? (
           <Badge variant="secondary" className="bg-green-100 text-green-800">
             Active
+          </Badge>
+        ) : (
+          <Badge variant="secondary" className="bg-yellow-100 text-yellow-800">
+            Preparing
           </Badge>
         )}
       </CardHeader>
@@ -84,6 +88,20 @@ const HistoricalDataStatus = () => {
             <p className="text-sm text-gray-600">Days Retained</p>
           </div>
         </div>
+
+        {stats.historicalRecords === 0 && stats.totalRecords > 0 && (
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+            <div className="flex items-center space-x-2">
+              <AlertTriangle className="w-5 h-5 text-yellow-600" />
+              <span className="text-yellow-800 font-medium">
+                Historical preservation setup in progress
+              </span>
+            </div>
+            <p className="text-yellow-700 text-sm mt-1">
+              The database migration is ready. Once applied, your data will be preserved beyond Zoom's 90-day window automatically.
+            </p>
+          </div>
+        )}
 
         {retentionSummary.hasDataBeyondZoomRetention && (
           <div className="bg-green-50 border border-green-200 rounded-lg p-4">
