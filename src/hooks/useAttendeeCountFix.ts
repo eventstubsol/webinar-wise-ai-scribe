@@ -1,4 +1,3 @@
-
 import { useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
@@ -12,22 +11,22 @@ export const useAttendeeCountFix = () => {
     try {
       console.log(`[useAttendeeCountFix] Fixing counts for webinar: ${webinarId}`);
       
-      // Get attendee count (excluding historical records) - simplified query
-      const { count: attendeeCount } = await supabase
+      // Get attendee count (excluding historical records) - using simple query
+      const attendeeResult = await supabase
         .from('attendees')
         .select('*', { count: 'exact', head: true })
         .eq('webinar_id', webinarId)
         .eq('is_historical', false);
 
-      // Get registrant count (excluding historical records) - simplified query
-      const { count: registrantCount } = await supabase
+      // Get registrant count (excluding historical records) - using simple query
+      const registrantResult = await supabase
         .from('zoom_registrations')
         .select('*', { count: 'exact', head: true })
         .eq('webinar_id', webinarId)
         .eq('is_historical', false);
 
-      const finalAttendeeCount = attendeeCount || 0;
-      const finalRegistrantCount = registrantCount || 0;
+      const finalAttendeeCount = attendeeResult.count || 0;
+      const finalRegistrantCount = registrantResult.count || 0;
 
       console.log(`[useAttendeeCountFix] Found ${finalAttendeeCount} attendees, ${finalRegistrantCount} registrants`);
 
