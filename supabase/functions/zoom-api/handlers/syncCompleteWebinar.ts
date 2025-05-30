@@ -61,40 +61,15 @@ export async function syncCompleteWebinarWithAllInstances(webinarId: string, cre
       return await syncSingleWebinarParticipants(webinarId, credentials, supabase, user);
     }
     
-    // Step 2: Process each instance
+    // Step 2: Process each instance using batch operations
     for (const instance of instances) {
       try {
         console.log(`[syncCompleteWebinar] Processing instance ${instance.uuid}`);
         
-        // Ensure instance exists in database
-        const { data: dbInstance, error: instanceError } = await supabase
-          .from('webinar_instances')
-          .upsert({
-            user_id: user.id,
-            webinar_id: webinarId,
-            zoom_instance_id: instance.uuid,
-            start_time: instance.start_time,
-            host_id: instance.host_id,
-            duration: instance.duration,
-            total_participants: instance.participants_count || 0,
-            raw_data: instance
-          }, {
-            onConflict: 'user_id,webinar_id,zoom_instance_id'
-          })
-          .select()
-          .single();
-        
-        if (instanceError) {
-          console.error(`[syncCompleteWebinar] Error creating instance ${instance.uuid}:`, instanceError);
-          syncResults.errors.push(`Instance ${instance.uuid}: ${instanceError.message}`);
-          continue;
-        }
-        
-        // Sync participants for this instance
+        // Sync participants for this instance using the new batch approach
         const instanceResult = await syncInstanceParticipants(
           webinarId, 
-          instance.uuid, 
-          dbInstance.id, 
+          instance,
           credentials, 
           supabase, 
           user

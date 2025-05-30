@@ -932,6 +932,48 @@ export type Database = {
           },
         ]
       }
+      webinar_instances: {
+        Row: {
+          created_at: string
+          duration: number | null
+          host_id: string | null
+          id: string
+          raw_data: Json | null
+          start_time: string | null
+          total_participants: number | null
+          updated_at: string
+          user_id: string
+          webinar_id: string
+          zoom_instance_id: string
+        }
+        Insert: {
+          created_at?: string
+          duration?: number | null
+          host_id?: string | null
+          id?: string
+          raw_data?: Json | null
+          start_time?: string | null
+          total_participants?: number | null
+          updated_at?: string
+          user_id: string
+          webinar_id: string
+          zoom_instance_id: string
+        }
+        Update: {
+          created_at?: string
+          duration?: number | null
+          host_id?: string | null
+          id?: string
+          raw_data?: Json | null
+          start_time?: string | null
+          total_participants?: number | null
+          updated_at?: string
+          user_id?: string
+          webinar_id?: string
+          zoom_instance_id?: string
+        }
+        Relationships: []
+      }
       webinar_interpreters: {
         Row: {
           created_at: string | null
@@ -2376,6 +2418,57 @@ export type Database = {
           processing_error?: string | null
           webhook_id?: string | null
           webinar_id?: string | null
+        }
+        Relationships: []
+      }
+      zoom_webinar_instance_participants: {
+        Row: {
+          created_at: string
+          duration: number | null
+          email: string
+          id: string
+          instance_id: string
+          join_time: string | null
+          leave_time: string | null
+          name: string | null
+          participant_id: string
+          participant_type: string
+          raw_data: Json | null
+          updated_at: string
+          user_id: string
+          webinar_id: string
+        }
+        Insert: {
+          created_at?: string
+          duration?: number | null
+          email: string
+          id?: string
+          instance_id: string
+          join_time?: string | null
+          leave_time?: string | null
+          name?: string | null
+          participant_id: string
+          participant_type: string
+          raw_data?: Json | null
+          updated_at?: string
+          user_id: string
+          webinar_id: string
+        }
+        Update: {
+          created_at?: string
+          duration?: number | null
+          email?: string
+          id?: string
+          instance_id?: string
+          join_time?: string | null
+          leave_time?: string | null
+          name?: string | null
+          participant_id?: string
+          participant_type?: string
+          raw_data?: Json | null
+          updated_at?: string
+          user_id?: string
+          webinar_id?: string
         }
         Relationships: []
       }

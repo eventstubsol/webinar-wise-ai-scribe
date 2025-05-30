@@ -1,6 +1,6 @@
 
 import { fetchAllPaginatedData } from '../utils/pagination.ts';
-import { storeParticipantsInBatches } from './participantStorage.ts';
+import { storeParticipantsInBatches } from '../utils/batchOperations.ts';
 
 async function getZoomJwtToken(accountId: string, clientId: string, clientSecret: string) {
   const response = await fetch('https://zoom.us/oauth/token', {
