@@ -48,7 +48,7 @@ export const useJobRecovery = () => {
           started_at: new Date().toISOString(),
           error_message: null,
           metadata: {
-            ...stuckJobs[0]?.metadata,
+            ...(stuckJobs[0]?.metadata || {}),
             restarted_at: new Date().toISOString(),
             restart_reason: 'Automatic recovery from stuck state'
           }

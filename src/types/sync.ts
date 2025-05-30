@@ -38,6 +38,15 @@ export interface SyncProgress {
     comprehensive_coverage?: string;
     error_type?: string;
     error_details?: string;
+    // New enhanced properties
+    enhanced_processing?: boolean;
+    background_support?: boolean;
+    background_jobs?: number;
+    timeout_protection?: string;
+    timeout_transition?: boolean;
+    timeout_reason?: string;
+    restarted_at?: string;
+    restart_reason?: string;
   };
   apiRequestsUsed?: number;
   estimatedTimeRemaining?: string;

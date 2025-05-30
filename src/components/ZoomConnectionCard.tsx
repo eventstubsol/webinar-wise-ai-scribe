@@ -34,6 +34,10 @@ const ZoomConnectionCard = ({ zoomConnection, isConnected }: ZoomConnectionCardP
     setIsWizardOpen(false);
   };
 
+  const handleProcessJobs = () => {
+    processJobs();
+  };
+
   return (
     <>
       <Card>
@@ -87,7 +91,7 @@ const ZoomConnectionCard = ({ zoomConnection, isConnected }: ZoomConnectionCardP
                 </Button>
                 
                 <Button 
-                  onClick={processJobs} 
+                  onClick={handleProcessJobs}
                   disabled={syncing || processing}
                   size="sm"
                   variant="outline"
