@@ -1,4 +1,3 @@
-
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -7,7 +6,10 @@ import { Progress } from "@/components/ui/progress";
 import { RefreshCw, Link2, Unlink, Clock, CheckCircle, XCircle, AlertCircle, Database, Users, Settings, MessageSquare, BarChart3, HelpCircle, UserCheck } from "lucide-react";
 import { useZoomIntegration } from "@/hooks/useZoomIntegration";
 import { useAuth } from "@/hooks/useAuth";
+import { useEnhancedSyncTimeout } from "@/hooks/useEnhancedSyncTimeout";
+import { useJobProcessor } from "@/hooks/useJobProcessor";
 import ZoomConnectionWizard from "./ZoomConnectionWizard";
+import BackgroundJobStatus from "./BackgroundJobStatus";
 import { useState } from "react";
 
 const ZoomIntegration = () => {
@@ -21,9 +23,25 @@ const ZoomIntegration = () => {
     disconnectZoom,
     syncProgress,
     syncJobs,
+    refreshJobs,
   } = useZoomIntegration();
 
+  const { processing, processJobs, forceProcessStuckJobs } = useJobProcessor();
   const [isWizardOpen, setIsWizardOpen] = useState(false);
+
+  // Enhanced timeout handling
+  const {
+    backgroundProcessing,
+    manualStatusCheck,
+    timeoutMinutes
+  } = useEnhancedSyncTimeout(
+    syncing,
+    refreshJobs,
+    syncJobs,
+    () => {}, // setSyncProgress handled by main integration hook
+    () => {}, // setSyncing handled by main integration hook
+    syncProgress.details?.webinars_found
+  );
 
   const handleWizardSuccess = () => {
     setIsWizardOpen(false);
@@ -74,6 +92,8 @@ const ZoomIntegration = () => {
         return <UserCheck className="w-4 h-4" />;
       case 'completed':
         return <CheckCircle className="w-4 h-4 text-green-500" />;
+      case 'background_processing':
+        return <RefreshCw className="w-4 h-4 text-blue-500 animate-spin" />;
       case 'error':
         return <XCircle className="w-4 h-4 text-red-500" />;
       default:
@@ -98,7 +118,7 @@ const ZoomIntegration = () => {
           <CardHeader>
             <CardTitle className="flex items-center space-x-2">
               <Link2 className="w-5 h-5" />
-              <span>Zoom Integration</span>
+              <span>Enhanced Zoom Integration</span>
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -134,26 +154,38 @@ const ZoomIntegration = () => {
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
                     <div>
-                      <h4 className="font-medium">Smart Rate-Limited Sync</h4>
+                      <h4 className="font-medium">Enhanced Large Dataset Sync</h4>
                       <p className="text-sm text-gray-600">
-                        Intelligent sync that respects Zoom's API limits and includes comprehensive dashboard permissions
+                        Intelligent sync with extended timeouts ({timeoutMinutes} min) and background processing for large datasets
                       </p>
-                      {/* Permissions info */}
                       <div className="mt-2 p-2 bg-blue-50 rounded text-xs text-blue-700">
-                        <div className="font-medium mb-1">Required permissions:</div>
-                        <div>• Basic webinar access</div>
-                        <div>• Dashboard analytics</div>
-                        <div>• Participant data access</div>
+                        <div className="font-medium mb-1">Enhanced features:</div>
+                        <div>• Extended timeout protection</div>
+                        <div>• Background job recovery</div>
+                        <div>• Real-time progress tracking</div>
+                        <div>• Automatic stuck job restart</div>
                       </div>
                     </div>
-                    <Button
-                      onClick={syncWebinarData}
-                      disabled={syncing}
-                      className="flex items-center space-x-2"
-                    >
-                      <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
-                      <span>{syncing ? 'Syncing...' : 'Start Smart Sync'}</span>
-                    </Button>
+                    <div className="flex space-x-2">
+                      <Button
+                        onClick={syncWebinarData}
+                        disabled={syncing}
+                        className="flex items-center space-x-2"
+                      >
+                        <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
+                        <span>{syncing ? 'Syncing...' : 'Enhanced Sync'}</span>
+                      </Button>
+                      
+                      <Button
+                        onClick={() => processJobs()}
+                        disabled={processing}
+                        variant="outline"
+                        size="sm"
+                      >
+                        <Settings className={`w-4 h-4 ${processing ? 'animate-spin' : ''}`} />
+                        {processing ? 'Processing...' : 'Process Jobs'}
+                      </Button>
+                    </div>
                   </div>
 
                   {/* Enhanced Sync Progress */}
@@ -197,10 +229,10 @@ const ZoomIntegration = () => {
                               <div className="text-gray-500">Synced</div>
                             </div>
                           )}
-                          {syncProgress.details.detailed_sync_count && (
+                          {syncProgress.details.background_jobs && (
                             <div className="text-center">
-                              <div className="font-medium">{String(syncProgress.details.detailed_sync_count)}</div>
-                              <div className="text-gray-500">Detailed</div>
+                              <div className="font-medium">{String(syncProgress.details.background_jobs)}</div>
+                              <div className="text-gray-500">Background</div>
                             </div>
                           )}
                         </div>
@@ -216,10 +248,10 @@ const ZoomIntegration = () => {
                     Not Connected
                   </Badge>
                   <p className="text-sm text-gray-600 mt-2">
-                    Connect your Zoom account to sync comprehensive webinar data automatically
+                    Connect your Zoom account to sync comprehensive webinar data with enhanced timeout protection
                   </p>
                   <p className="text-xs text-gray-500 mt-1">
-                    Updated integration includes dashboard access for complete analytics
+                    New: Automatic background processing for large datasets
                   </p>
                 </div>
                 <Button 
@@ -227,12 +259,20 @@ const ZoomIntegration = () => {
                   className="flex items-center space-x-2"
                 >
                   <Settings className="w-4 h-4" />
-                  <span>Setup Zoom Integration</span>
+                  <span>Setup Enhanced Integration</span>
                 </Button>
               </div>
             )}
           </CardContent>
         </Card>
+
+        {/* Background Job Status Component */}
+        <BackgroundJobStatus
+          backgroundProcessing={backgroundProcessing}
+          syncJobs={syncJobs}
+          onManualCheck={manualStatusCheck}
+          onRefreshJobs={refreshJobs}
+        />
 
         {/* Enhanced Sync Jobs Display */}
         {syncJobs && syncJobs.length > 0 && (
@@ -242,7 +282,7 @@ const ZoomIntegration = () => {
                 <Database className="w-5 h-5" />
                 <span>Sync Jobs</span>
                 <Badge variant="outline" className="ml-auto">
-                  {syncJobs.filter(job => job.status === 'running').length} active
+                  {syncJobs.filter(job => job.status === 'running' || job.status === 'pending').length} active
                 </Badge>
               </CardTitle>
             </CardHeader>
@@ -255,7 +295,9 @@ const ZoomIntegration = () => {
                       <div>
                         <div className="flex items-center space-x-2">
                           <span className="font-medium">
-                            {job.job_type === 'comprehensive_rate_limited_sync' ? 'Smart Rate-Limited Sync' : job.job_type.replace('_', ' ')}
+                            {job.job_type === 'comprehensive_rate_limited_sync' ? 'Enhanced Rate-Limited Sync' : 
+                             job.job_type === 'detailed_webinar_sync' ? 'Background Detail Sync' :
+                             job.job_type.replace('_', ' ')}
                           </span>
                           <Badge variant="outline" className={getStatusColor(job.status)}>
                             {job.status}
@@ -266,8 +308,8 @@ const ZoomIntegration = () => {
                           {job.metadata?.webinars_synced && (
                             <span className="ml-2">• {String(job.metadata.webinars_synced)} webinars</span>
                           )}
-                          {job.metadata?.api_requests_made && (
-                            <span className="ml-2">• {String(job.metadata.api_requests_made)} API calls</span>
+                          {job.metadata?.enhanced_processing && (
+                            <span className="ml-2 text-blue-600">• Enhanced</span>
                           )}
                         </p>
                         {job.error_message && (
@@ -279,10 +321,10 @@ const ZoomIntegration = () => {
                       </div>
                     </div>
                     <div className="text-right text-sm">
-                      {job.status === 'running' && (
+                      {(job.status === 'running' || job.status === 'pending') && (
                         <div className="space-y-1">
-                          <div className="text-gray-500">{job.progress}%</div>
-                          <Progress value={job.progress} className="w-20" />
+                          <div className="text-gray-500">{job.progress || 0}%</div>
+                          <Progress value={job.progress || 0} className="w-20" />
                         </div>
                       )}
                       {job.completed_at && (
@@ -293,6 +335,21 @@ const ZoomIntegration = () => {
                     </div>
                   </div>
                 ))}
+                
+                {syncJobs.filter(job => job.status === 'failed').length > 0 && (
+                  <div className="pt-2">
+                    <Button 
+                      onClick={forceProcessStuckJobs}
+                      disabled={processing}
+                      variant="outline" 
+                      size="sm"
+                      className="w-full"
+                    >
+                      <AlertCircle className="w-4 h-4 mr-2" />
+                      Restart Failed Jobs
+                    </Button>
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>

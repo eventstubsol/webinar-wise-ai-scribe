@@ -27,10 +27,28 @@ export const useSyncTimeout = (
     await refreshJobs();
     
     const latestJob = syncJobs[0];
-    if (latestJob && latestJob.status === 'running') {
-      console.log('Job still running after timeout, marking as completed');
-      // If job is still running after timeout, consider it completed
-      // The background processing will continue on the server
+    if (latestJob && (latestJob.status === 'running' || latestJob.status === 'pending')) {
+      console.log('Job still active after timeout, transitioning to background mode');
+      
+      // Enhanced timeout handling - show background processing status
+      setSyncProgress({
+        stage: 'background_processing',
+        message: 'Large dataset detected - processing continues in background',
+        progress: latestJob.progress || 60,
+        estimatedTimeRemaining: 'Processing in background...',
+        details: {
+          ...latestJob.metadata,
+          timeout_transition: true,
+          background_processing: true,
+          comprehensive_coverage: 'Sync continues automatically in background for large datasets'
+        }
+      });
+      
+      toast({
+        title: "Sync Continues in Background",
+        description: "Large dataset detected. Processing continues automatically - you'll be notified when complete.",
+      });
+    } else {
       setSyncProgress({
         stage: 'completed',
         message: 'Sync completed successfully! Data processing continues in background.',
@@ -53,16 +71,16 @@ export const useSyncTimeout = (
 
   const startSyncTimeout = () => {
     if (syncing) {
-      // Poll more frequently for better responsiveness
+      // Enhanced polling for better responsiveness
       const interval = setInterval(() => {
         refreshJobs();
-      }, 1500);
+      }, 1000); // More frequent polling
 
-      // Set a maximum sync timeout of 10 minutes
+      // Extended timeout for large datasets - 20 minutes instead of 10
       const timeout = setTimeout(() => {
-        console.log('Sync timeout reached, checking final status...');
+        console.log('Enhanced sync timeout reached, checking final status...');
         handleSyncTimeout();
-      }, 600000); // 10 minutes
+      }, 1200000); // 20 minutes
 
       setSyncTimeout(timeout);
 
