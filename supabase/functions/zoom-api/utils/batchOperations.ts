@@ -12,15 +12,53 @@ export async function storeParticipantsInBatches(
   try {
     console.log(`[batchOperations] Starting batch storage for instance ${instanceId}: ${registrants.length} registrants, ${attendees.length} attendees`);
     
+    // Get user's organization_id first
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('organization_id')
+      .eq('id', userId)
+      .single();
+
+    if (profileError || !profile) {
+      console.error('[batchOperations] Failed to get user profile:', profileError);
+      throw new Error('Unable to get user organization');
+    }
+
+    const organizationId = profile.organization_id;
+    console.log(`[batchOperations] Using organization_id: ${organizationId}`);
+
+    // Get the internal webinar UUID from the Zoom webinar ID
+    const { data: webinarRecord, error: webinarError } = await supabase
+      .from('webinars')
+      .select('id')
+      .eq('zoom_webinar_id', webinarId)
+      .eq('organization_id', organizationId)
+      .single();
+
+    if (webinarError || !webinarRecord) {
+      console.error('[batchOperations] Failed to find webinar record:', webinarError);
+      throw new Error(`Unable to find webinar with Zoom ID: ${webinarId}`);
+    }
+
+    const internalWebinarId = webinarRecord.id;
+    console.log(`[batchOperations] Found internal webinar ID: ${internalWebinarId}`);
+    
     // Clear existing data for this instance to avoid duplicates
     console.log(`[batchOperations] Clearing existing data for instance ${instanceId}`);
-    await supabase
-      .from('zoom_webinar_instance_participants')
-      .delete()
-      .eq('user_id', userId)
-      .eq('instance_id', instanceId);
+    await Promise.all([
+      supabase
+        .from('zoom_webinar_instance_participants')
+        .delete()
+        .eq('user_id', userId)
+        .eq('instance_id', instanceId),
+      supabase
+        .from('attendees')
+        .delete()
+        .eq('organization_id', organizationId)
+        .eq('webinar_id', internalWebinarId)
+    ]);
     
-    // Process registrants in batches
+    // Process registrants in batches (keep existing logic)
     if (registrants.length > 0) {
       console.log(`[batchOperations] Storing ${registrants.length} registrants in batches of ${BATCH_SIZE}`);
       
@@ -42,31 +80,28 @@ export async function storeParticipantsInBatches(
         
         const { error } = await supabase
           .from('zoom_webinar_instance_participants')
-          .upsert(registrantsToInsert, {
-            onConflict: 'user_id,instance_id,participant_id',
-            ignoreDuplicates: true
-          });
+          .insert(registrantsToInsert);
         
         if (error) {
           console.error(`[batchOperations] Error inserting registrants batch ${i}-${i + batch.length}:`, error);
-          // Continue with next batch instead of throwing
         } else {
           totalStored += batch.length;
           console.log(`[batchOperations] Inserted registrants batch ${i + 1}-${i + batch.length}`);
         }
         
-        // Small delay between batches
         await new Promise(resolve => setTimeout(resolve, 100));
       }
     }
     
-    // Process attendees in batches
+    // Process attendees in batches - store in BOTH tables
     if (attendees.length > 0) {
       console.log(`[batchOperations] Storing ${attendees.length} attendees in batches of ${BATCH_SIZE}`);
       
       for (let i = 0; i < attendees.length; i += BATCH_SIZE) {
         const batch = attendees.slice(i, i + BATCH_SIZE);
-        const attendeesToInsert = batch.map((attendee: any, index: number) => ({
+        
+        // Store in zoom_webinar_instance_participants (existing logic)
+        const participantsToInsert = batch.map((attendee: any, index: number) => ({
           user_id: userId,
           instance_id: instanceId,
           webinar_id: webinarId,
@@ -80,22 +115,53 @@ export async function storeParticipantsInBatches(
           raw_data: attendee
         }));
         
-        const { error } = await supabase
-          .from('zoom_webinar_instance_participants')
-          .upsert(attendeesToInsert, {
-            onConflict: 'user_id,instance_id,participant_id',
-            ignoreDuplicates: true
-          });
+        // Store in attendees table (NEW LOGIC)
+        const attendeesToInsert = batch.map((attendee: any, index: number) => {
+          const duration = attendee.duration || 0;
+          const engagementScore = Math.min(10, Math.max(0, duration / 60)); // Simple engagement based on duration
+          
+          return {
+            organization_id: organizationId,
+            webinar_id: internalWebinarId,
+            zoom_user_id: attendee.id || attendee.user_id || `att_${instanceId}_${i + index}`,
+            email: attendee.user_email || attendee.email || '',
+            name: attendee.name || attendee.user_name || 'Unknown',
+            join_time: attendee.join_time || new Date().toISOString(),
+            leave_time: attendee.leave_time,
+            duration_minutes: Math.round(duration / 60), // Convert seconds to minutes
+            engagement_score: engagementScore,
+            device_type: attendee.device_type || null,
+            ip_address: attendee.ip_address || null,
+            location: attendee.location || null,
+            network_type: attendee.network_type || null,
+            total_attention_time: duration,
+            join_count: 1
+          };
+        });
         
-        if (error) {
-          console.error(`[batchOperations] Error inserting attendees batch ${i}-${i + batch.length}:`, error);
-          // Continue with next batch instead of throwing
-        } else {
-          totalStored += batch.length;
-          console.log(`[batchOperations] Inserted attendees batch ${i + 1}-${i + batch.length}`);
+        // Insert into both tables
+        const [participantsResult, attendeesResult] = await Promise.all([
+          supabase
+            .from('zoom_webinar_instance_participants')
+            .insert(participantsToInsert),
+          supabase
+            .from('attendees')
+            .insert(attendeesToInsert)
+        ]);
+        
+        if (participantsResult.error) {
+          console.error(`[batchOperations] Error inserting participants batch ${i}-${i + batch.length}:`, participantsResult.error);
         }
         
-        // Small delay between batches
+        if (attendeesResult.error) {
+          console.error(`[batchOperations] Error inserting attendees batch ${i}-${i + batch.length}:`, attendeesResult.error);
+        }
+        
+        if (!participantsResult.error && !attendeesResult.error) {
+          totalStored += batch.length;
+          console.log(`[batchOperations] Successfully inserted batch ${i + 1}-${i + batch.length} into both tables`);
+        }
+        
         await new Promise(resolve => setTimeout(resolve, 100));
       }
     }
@@ -105,7 +171,6 @@ export async function storeParticipantsInBatches(
     
   } catch (error) {
     console.error('[batchOperations] Critical error during batch storage:', error);
-    // Return partial results instead of throwing
     return totalStored;
   }
 }
