@@ -84,8 +84,8 @@ serve(async (req) => {
     const state = btoa(user.id)
     const redirectUri = `${Deno.env.get('SUPABASE_URL')}/functions/v1/zoom-oauth-callback`
     
-    // Updated scope to include comprehensive permissions
-    const scope = 'webinar:read:admin meeting:read:admin user:read:admin dashboard:read:webinar:admin dashboard:read:list_webinar_participants:admin'
+    // Updated scope to include comprehensive permissions including recording access
+    const scope = 'webinar:read:admin meeting:read:admin user:read:admin dashboard:read:webinar:admin dashboard:read:list_webinar_participants:admin recording:read:admin cloud_recording:read:admin'
     
     const authUrl = `https://zoom.us/oauth/authorize?` + 
       `response_type=code&` +

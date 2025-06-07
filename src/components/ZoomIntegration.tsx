@@ -10,6 +10,7 @@ import { useEnhancedSyncTimeout } from "@/hooks/useEnhancedSyncTimeout";
 import { useJobProcessor } from "@/hooks/useJobProcessor";
 import ZoomConnectionWizard from "./ZoomConnectionWizard";
 import BackgroundJobStatus from "./BackgroundJobStatus";
+import { GlobalSyncButton } from "./GlobalSyncButton";
 import { useState } from "react";
 
 const ZoomIntegration = () => {
@@ -152,6 +153,27 @@ const ZoomIntegration = () => {
                 <Separator />
 
                 <div className="space-y-4">
+                  {/* Global Sync Section */}
+                  <div className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg p-4 border border-blue-200">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h4 className="font-medium text-blue-900">🚀 Global Data Synchronization</h4>
+                        <p className="text-sm text-blue-700 mb-2">
+                          Complete end-to-end sync of all webinar data with visual progress tracking
+                        </p>
+                        <div className="text-xs text-blue-600 space-y-1">
+                          <div>✓ Webinars • Participants • Registrations • Polls • Q&A • Chat • Recordings • Analytics</div>
+                          <div>✓ Rate-limited • Background processing • Real-time progress • Error recovery</div>
+                        </div>
+                      </div>
+                      <div className="flex-shrink-0">
+                        <GlobalSyncButton size="default" className="bg-blue-600 hover:bg-blue-700 text-white" />
+                      </div>
+                    </div>
+                  </div>
+
+                  <Separator />
+
                   <div className="flex items-center justify-between">
                     <div>
                       <h4 className="font-medium">Enhanced Large Dataset Sync</h4>

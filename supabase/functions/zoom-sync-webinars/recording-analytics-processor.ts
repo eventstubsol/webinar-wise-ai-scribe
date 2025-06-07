@@ -93,9 +93,15 @@ export async function processRecordingAnalytics(
 
 async function fetchRecordingDetailedAnalytics(recordingId: string, accessToken: string) {
   try {
+    // Ensure compliance with Zoom's 1-month query limit for analytics
+    const oneMonthAgo = new Date()
+    oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1)
+    const fromDate = oneMonthAgo.toISOString().split('T')[0]
+    const toDate = new Date().toISOString().split('T')[0]
+    
     // Note: This endpoint may require additional permissions or may not be available
     // Returning mock structure for now - implement based on available Zoom APIs
-    const analyticsResponse = await fetch(`https://api.zoom.us/v2/meetings/${recordingId}/recordings/analytics`, {
+    const analyticsResponse = await fetch(`https://api.zoom.us/v2/meetings/${recordingId}/recordings/analytics?from=${fromDate}&to=${toDate}`, {
       headers: {
         'Authorization': `Bearer ${accessToken}`,
         'Content-Type': 'application/json',

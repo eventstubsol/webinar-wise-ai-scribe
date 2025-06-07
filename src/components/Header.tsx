@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Calendar, Download, Settings, LogOut, Link2 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useZoomIntegration } from "@/hooks/useZoomIntegration";
+import { GlobalSyncButton } from "./GlobalSyncButton";
 
 const Header = () => {
   const { signOut, user } = useAuth();
@@ -38,6 +39,7 @@ const Header = () => {
           <span className="text-sm text-gray-600">
             Welcome, {user?.user_metadata?.first_name || user?.email}
           </span>
+          <GlobalSyncButton variant="outline" size="sm" />
           <Button variant="outline" size="sm" className="flex items-center space-x-2">
             <Download className="w-4 h-4" />
             <span>Export</span>
