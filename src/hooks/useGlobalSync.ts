@@ -164,19 +164,16 @@ export const useGlobalSync = () => {
 
     updateStage('validation', { progress: 50, message: 'Checking Zoom connection...' });
     
+    // Fix the column name from 'status' to 'connection_status'
     const { data: connection, error: connectionError } = await supabase
       .from('zoom_connections')
-      .select('status, expires_at')
+      .select('connection_status, created_at')
       .eq('user_id', user.id)
-      .eq('status', 'active')
+      .eq('connection_status', 'active')
       .single();
 
     if (connectionError || !connection) {
       throw new Error('No active Zoom connection found');
-    }
-
-    if (connection.expires_at && new Date(connection.expires_at) < new Date()) {
-      throw new Error('Zoom connection has expired');
     }
 
     updateStage('validation', { 
@@ -389,6 +386,7 @@ export const useGlobalSync = () => {
 
     updateStage('analytics', { 
       status: 'completed', 
+      progress: 100,
       endTime: new Date(),
       message: 'Analytics processing complete'
     });

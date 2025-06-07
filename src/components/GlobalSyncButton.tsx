@@ -1,6 +1,7 @@
+
 import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger } from '@/components/ui/dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { 
   RefreshCw, 
@@ -97,6 +98,12 @@ export const GlobalSyncButton: React.FC<GlobalSyncButtonProps> = ({
               <Database className="h-5 w-5" />
               {isRunning ? 'Global Sync in Progress' : 'Global Data Synchronization'}
             </DialogTitle>
+            <DialogDescription>
+              {isRunning 
+                ? 'Monitor the progress of your comprehensive data synchronization.' 
+                : 'Start a complete synchronization of all your Zoom webinar data including webinars, participants, registrations, polls, Q&A, chat, recordings, and analytics.'
+              }
+            </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-6">
