@@ -238,15 +238,16 @@ export const useGlobalSync = () => {
     });
 
     // Since participants are processed by background jobs, we'll monitor job progress
+    // Use sync_jobs table instead of non-existent background_sync_jobs
     let progress = 0;
     const maxChecks = 30; // 5 minutes max
     
     for (let i = 0; i < maxChecks; i++) {
       const { data: jobs } = await supabase
-        .from('background_sync_jobs')
+        .from('sync_jobs')
         .select('status')
         .eq('organization_id', organizationId)
-        .in('type', ['participant_sync', 'detailed_sync']);
+        .in('job_type', ['participant_sync', 'detailed_sync']);
 
       const totalJobs = jobs?.length || 0;
       const completedJobs = jobs?.filter(j => j.status === 'completed').length || 0;

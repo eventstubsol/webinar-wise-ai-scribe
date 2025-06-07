@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger } from '@/components/ui/dialog';
@@ -31,7 +30,7 @@ export const GlobalSyncButton: React.FC<GlobalSyncButtonProps> = ({
   const [dialogOpen, setDialogOpen] = useState(false);
   const [confirmSync, setConfirmSync] = useState(false);
   const { progress, startGlobalSync, cancelSync, isRunning } = useGlobalSync();
-  const { connectionStatus, isConnected } = useZoomConnection();
+  const { isConnected } = useZoomConnection();
 
   const handleSyncClick = () => {
     if (isRunning) {

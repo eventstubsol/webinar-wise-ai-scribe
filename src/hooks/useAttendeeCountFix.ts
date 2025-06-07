@@ -12,35 +12,28 @@ export const useAttendeeCountFix = () => {
     try {
       console.log(`[useAttendeeCountFix] Fixing counts for webinar: ${webinarId}`);
       
-      // Get attendee count (excluding historical records) - using explicit type assertion
-      const attendeeQuery = supabase
-        .from('attendees')
-        .select('*', { count: 'exact', head: true })
-        .eq('webinar_id', webinarId)
-        .eq('is_historical', false);
+      // Get attendee count using raw query to avoid type issues
+      const attendeeCountResult = await supabase.rpc('get_attendee_count', {
+        p_webinar_id: webinarId
+      });
       
-      const attendeeResult = await attendeeQuery;
+      const attendeeCount = attendeeCountResult.data || 0;
 
-      // Get registrant count (excluding historical records) - using explicit type assertion
-      const registrantQuery = supabase
-        .from('zoom_registrations')
-        .select('*', { count: 'exact', head: true })
-        .eq('webinar_id', webinarId)
-        .eq('is_historical', false);
+      // Get registrant count using raw query to avoid type issues  
+      const registrantCountResult = await supabase.rpc('get_registrant_count', {
+        p_webinar_id: webinarId
+      });
       
-      const registrantResult = await registrantQuery;
+      const registrantCount = registrantCountResult.data || 0;
 
-      const finalAttendeeCount = attendeeResult.count || 0;
-      const finalRegistrantCount = registrantResult.count || 0;
-
-      console.log(`[useAttendeeCountFix] Found ${finalAttendeeCount} attendees, ${finalRegistrantCount} registrants`);
+      console.log(`[useAttendeeCountFix] Found ${attendeeCount} attendees, ${registrantCount} registrants`);
 
       // Update webinar counts
       const { error: updateError } = await supabase
         .from('webinars')
         .update({
-          attendees_count: finalAttendeeCount,
-          registrants_count: finalRegistrantCount,
+          attendees_count: attendeeCount,
+          registrants_count: registrantCount,
           updated_at: new Date().toISOString()
         })
         .eq('id', webinarId);
@@ -52,8 +45,8 @@ export const useAttendeeCountFix = () => {
       console.log(`[useAttendeeCountFix] Successfully updated counts for webinar ${webinarId}`);
 
       return {
-        attendees_count: finalAttendeeCount,
-        registrants_count: finalRegistrantCount
+        attendees_count: attendeeCount,
+        registrants_count: registrantCount
       };
     } catch (error) {
       console.error('Error fixing counts for webinar:', webinarId, error);
